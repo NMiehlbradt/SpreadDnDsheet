@@ -68,6 +68,12 @@ impl AST {
 }
 
 impl Value<AST> {
+    /// Evaluates a value in the context of a sheet.
+    ///
+    /// This function takes a mutable reference to a set of cells that were read during the evaluation,
+    /// and a mutable reference to a map of cells to that were pushed during the evaluation.
+    ///
+    /// The function returns a Result containing the evaluated value, or an error message if the evaluation failed.
     fn evaluate(
         &self,
         ctx: &Sheet<AST>,
@@ -100,6 +106,14 @@ impl IntermediateRep for AST {
         parse(text)
     }
 
+    /// Evaluates an AST in the context of a sheet.
+    ///
+    /// This function takes a mutable reference to a set of cells that were read during the evaluation,
+    /// and a mutable reference to a map of cells to that were pushed during the evaluation.
+    ///
+    /// The function returns a Result containing the evaluated value, or an error message if the evaluation failed.
+    ///
+    /// The function is used internally by the sheet to evaluate the contents of cells.
     fn evaluate(
         &self,
         ctx: &Sheet<Self>,
