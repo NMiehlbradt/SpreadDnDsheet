@@ -14,6 +14,8 @@ pub enum Value<T> {
 
     Record(BTreeMap<String, T>),
     List(Vec<T>),
+
+    BuiltinFunction(String),
 }
 
 #[derive(Debug, Clone)]
@@ -28,8 +30,8 @@ impl From<Value<EvaluatedValue>> for EvaluatedValue {
 #[derive(Debug, Clone)]
 pub enum AST {
     Literal(Value<AST>),
-    Var(String),
-    Function(String, Vec<AST>),
+    Name(String),
+    Function(Box<AST>, Vec<AST>),
 }
 
 #[derive(Debug, Clone)]
@@ -63,7 +65,7 @@ impl Error {
 
 impl AST {
     pub fn function(name: impl Into<String>, args: Vec<AST>) -> AST {
-        AST::Function(name.into(), args)
+        AST::Function(Box::new(AST::Literal(Value::BuiltinFunction(name.into()))), args)
     }
 }
 
@@ -78,7 +80,7 @@ impl Value<AST> {
         &self,
         ctx: &Sheet<AST>,
         reads: &mut HashSet<CellId>,
-        pushes: &mut HashMap<CellId, Vec<EvaluatedValue>>
+        pushes: &mut HashMap<CellId, Vec<EvaluatedValue>>,
     ) -> Result<EvaluatedValue, Error> {
         match self {
             Value::Integer(i) => Ok(EvaluatedValue(Value::Integer(*i))),
@@ -93,6 +95,7 @@ impl Value<AST> {
                     .map(|ast| ast.evaluate(ctx, reads, pushes))
                     .collect::<Result<_, _>>()?,
             ))),
+            Value::BuiltinFunction(name) => Ok(EvaluatedValue(Value::BuiltinFunction(name.clone()))),
         }
     }
 }
@@ -123,7 +126,7 @@ impl IntermediateRep for AST {
         match self {
             AST::Literal(value) => Ok(value.evaluate(ctx, reads, pushes)?),
 
-            AST::Var(name) => {
+            AST::Name(name) => {
                 let cell_id = CellId(name.clone());
                 reads.insert(cell_id.clone());
                 match ctx.get_cell_value(&cell_id) {
@@ -133,6 +136,11 @@ impl IntermediateRep for AST {
             }
 
             AST::Function(func_name, args) => {
+                let function = func_name.evaluate(ctx, reads, pushes)?;
+                let func_name = match function {
+                    EvaluatedValue(Value::BuiltinFunction(name)) => name,
+                    _ => return Err(Error::with_message("Uncallable type")),
+                };
                 let mut args = args.as_slice();
 
                 macro_rules! eval_function {
@@ -232,6 +240,7 @@ pub mod s_exprs {
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
+                Value::BuiltinFunction(name) => name.clone(),
             }
         }
     }
@@ -240,10 +249,10 @@ pub mod s_exprs {
         fn to_s_expr(&self) -> String {
             match self {
                 AST::Literal(value) => value.to_s_expr(),
-                AST::Var(name) => name.clone(),
+                AST::Name(name) => name.clone(),
                 AST::Function(name, args) => format!(
                     "({} {})",
-                    name,
+                    name.to_s_expr(),
                     args.iter()
                         .map(|a| a.to_s_expr())
                         .collect::<Vec<_>>()

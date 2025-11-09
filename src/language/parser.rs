@@ -232,16 +232,7 @@ impl<'a> Parser<'a> {
             }
 
             // Names
-            token_type!(Name, text) => match self.peek() {
-                // Name followed by brackets is a function call
-                // TODO: This will probably eventually be moved as a postfix operator once user defined functions are supported
-                token_type!(LParen) => {
-                    self.next();
-                    comma_seperated!(RParen, args, self.parse_expr(0)?);
-                    AST::function(text.to_string(), args)
-                }
-                _ => AST::Var(text.to_string()),
-            },
+            token_type!(Name, text) => AST::Name(text.to_string()),
 
             // Prefix operators
             token_type!(Minus) => {
@@ -290,6 +281,16 @@ impl<'a> Parser<'a> {
                     let field = self.expect_token(TokenType::Name)?.text.to_string();
                     let rhs = AST::Literal(Value::String(field));
                     lhs = AST::function("dot", vec![lhs, rhs]);
+                }
+
+                token_type!(LParen) => {
+                    let (left_bp, _) = postfix(10);
+                    if left_bp < min_bp {
+                        break;
+                    }
+                    self.tokens.next();
+                    comma_seperated!(RParen, args, self.parse_expr(0)?);
+                    lhs = AST::Function(Box::new(lhs), args)
                 }
                 _ => break,
             };
