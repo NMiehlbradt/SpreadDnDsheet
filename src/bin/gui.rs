@@ -51,7 +51,7 @@ impl State {
         }
     }
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         container(column![
             button("Add cell").on_press(Message::NewCell).width(Fill),
             scrollable(self.draw_cells()).height(Fill).width(Fill),
@@ -64,7 +64,7 @@ impl State {
         .into()
     }
 
-    fn draw_cells(&self) -> impl Into<Element<Message>> {
+    fn draw_cells(&self) -> impl Into<Element<'_, Message>> {
         column(self.cells.iter().map(|id| {
             let cell_name = id.0.clone();
             let cell_value = self.sheet.get_cell_value(id).unwrap();
