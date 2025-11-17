@@ -66,7 +66,7 @@ impl Error {
 impl AST {
     pub fn function(name: impl Into<String>, args: Vec<AST>) -> AST {
         AST::Function(
-            Box::new(AST::Literal(Value::BuiltinFunction(name.into()))),
+            Box::new(AST::Name(name.into())),
             args,
         )
     }
@@ -133,10 +133,11 @@ impl IntermediateRep for AST {
 
             AST::Name(name) => {
                 let cell_id = CellId(name.clone());
-                reads.insert(cell_id.clone());
-                match ctx.get_cell_value(&cell_id) {
-                    Some(value) => value.clone().map_err(|_| Error::propogated_error(&cell_id)),
-                    None => Err(Error::not_found(&cell_id)),
+                if let Some(value) = ctx.get_cell_value(&cell_id) {
+                    reads.insert(cell_id.clone());
+                    value.clone().map_err(|_| Error::propogated_error(&cell_id))
+                } else {
+                    Ok(Value::BuiltinFunction(name.clone()).into())
                 }
             }
 
