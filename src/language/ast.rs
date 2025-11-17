@@ -32,6 +32,7 @@ pub enum AST {
     Literal(Value<AST>),
     Name(String),
     Function(Box<AST>, Vec<AST>),
+    Seq(Box<AST>, Box<AST>),
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +141,11 @@ impl IntermediateRep for AST {
                     Ok(Value::BuiltinFunction(name.clone()).into())
                 }
             }
+
+            AST::Seq(first, second, ) => {
+                first.evaluate(ctx, reads, pushes)?;
+                second.evaluate(ctx, reads, pushes)
+            },
 
             AST::Function(func_name, args) => {
                 let function = func_name.evaluate(ctx, reads, pushes)?;

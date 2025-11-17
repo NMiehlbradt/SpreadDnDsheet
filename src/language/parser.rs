@@ -26,6 +26,7 @@ pub enum TokenType {
     Comma,
     Dot,
     Colon,
+    SemiColon,
 
     Plus,
     Minus,
@@ -56,6 +57,7 @@ lexer! {
     r#","# => TokenType::Comma,
     r#"\."# => TokenType::Dot,
     r#":"# => TokenType::Colon,
+    r#";"# => TokenType::SemiColon,
 
     r#"\+"# => TokenType::Plus,
     r#"-"# => TokenType::Minus,
@@ -267,9 +269,19 @@ impl<'a> Parser<'a> {
         loop {
             match self.peek().copied() {
                 // Infix operators
-                token_type!(Plus) => infix_op!(assoc_left(1), "+"),
-                token_type!(Minus) => infix_op!(assoc_left(1), "-"),
-                token_type!(Star) => infix_op!(assoc_left(2), "*"),
+                token_type!(Plus) => infix_op!(assoc_left(2), "+"),
+                token_type!(Minus) => infix_op!(assoc_left(2), "-"),
+                token_type!(Star) => infix_op!(assoc_left(3), "*"),
+
+                token_type!(SemiColon) => {
+                    let (left_bp, right_bp) = assoc_right(1);
+                    if left_bp < min_bp {
+                        break;
+                    }
+                    self.tokens.next();
+                    let rhs = self.parse_expr(right_bp)?;
+                    lhs = AST::Seq(Box::new(lhs), Box::new(rhs));
+                }
 
                 // Postfix operators
                 token_type!(Dot) => {
@@ -304,9 +316,9 @@ fn assoc_left(bp: u8) -> (u8, u8) {
     (bp * 2 - 1, bp * 2)
 }
 
-// fn assoc_right(bp: u8) -> (u8, u8) {
-//     (bp * 2, bp * 2 - 1)
-// }
+fn assoc_right(bp: u8) -> (u8, u8) {
+    (bp * 2, bp * 2 - 1)
+}
 
 fn prefix(bp: u8) -> ((), u8) {
     ((), bp * 2 - 1)
@@ -346,5 +358,6 @@ mod tests {
     test_parse_success!(test_dot2, "a.b.c", "(dot (dot a b) c)");
     test_parse_success!(test_dot_prec_left, "a.b + c", "(+ (dot a b) c)");
     test_parse_success!(test_dot_prec_right, "a + b.c", "(+ a (dot b c))");
+    test_parse_success!(test_seq, "1; 2", "(seq 1 2)");
     
 }

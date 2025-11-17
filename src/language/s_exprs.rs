@@ -50,6 +50,7 @@ impl ToSExpr for AST {
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
+            AST::Seq(first, second, ) => format!("(seq {} {})", first.to_s_expr(), second.to_s_expr()),
         }
     }
 }
