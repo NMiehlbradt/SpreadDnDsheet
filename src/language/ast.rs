@@ -40,7 +40,7 @@ pub struct Error {
 }
 
 pub fn pretty_print_result(res: &Result<EvaluatedValue, Error>) -> String {
-    use self::s_exprs::ToSExpr;
+    use super::s_exprs::ToSExpr;
     match res {
         Ok(v) => v.to_s_expr(),
         Err(e) => format!("Error: {}", e.message),
@@ -191,63 +191,5 @@ impl IntermediateRep for AST {
 
     fn make_error(message: impl Into<String>) -> Self::Error {
         Error::with_message(message)
-    }
-}
-
-pub mod s_exprs {
-    use super::*;
-
-    pub trait ToSExpr {
-        fn to_s_expr(&self) -> String;
-    }
-
-    impl ToSExpr for EvaluatedValue {
-        fn to_s_expr(&self) -> String {
-            self.0.to_s_expr()
-        }
-    }
-
-    // Conversions to s expressions for testing
-    impl<T: ToSExpr> ToSExpr for Value<T> {
-        fn to_s_expr(&self) -> String {
-            match self {
-                Value::Integer(i) => i.to_string(),
-                Value::String(s) => s.clone(),
-                Value::Record(fields) => format!(
-                    "{{{}}}",
-                    fields
-                        .iter()
-                        .map(|(k, v)| format!("{}: {}", k, v.to_s_expr()))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                Value::List(values) => format!(
-                    "[{}]",
-                    values
-                        .iter()
-                        .map(|v| v.to_s_expr())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                Value::BuiltinFunction(name) => name.clone(),
-            }
-        }
-    }
-
-    impl ToSExpr for AST {
-        fn to_s_expr(&self) -> String {
-            match self {
-                AST::Literal(value) => value.to_s_expr(),
-                AST::Name(name) => name.clone(),
-                AST::Function(name, args) => format!(
-                    "({} {})",
-                    name.to_s_expr(),
-                    args.iter()
-                        .map(|a| a.to_s_expr())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                ),
-            }
-        }
     }
 }

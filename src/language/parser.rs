@@ -319,7 +319,7 @@ fn postfix(bp: u8) -> (u8, ()) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::ast::s_exprs::ToSExpr;
+    use super::super::s_exprs::ToSExpr;
 
     macro_rules! test_parse_success {
         ($test_name:ident, $input:expr, $expected:expr) => {

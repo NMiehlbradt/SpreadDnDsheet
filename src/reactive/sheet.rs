@@ -1,4 +1,5 @@
-use crate::language::ast::{s_exprs::ToSExpr, AST};
+use crate::language::ast::AST;
+use crate::language::s_exprs::ToSExpr;
 use crate::maps::fastqueue::FastQueue;
 use crate::maps::pairmap::PairMap;
 use std::collections::{HashMap, HashSet};
