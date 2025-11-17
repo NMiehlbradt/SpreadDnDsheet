@@ -65,7 +65,10 @@ impl Error {
 
 impl AST {
     pub fn function(name: impl Into<String>, args: Vec<AST>) -> AST {
-        AST::Function(Box::new(AST::Literal(Value::BuiltinFunction(name.into()))), args)
+        AST::Function(
+            Box::new(AST::Literal(Value::BuiltinFunction(name.into()))),
+            args,
+        )
     }
 }
 
@@ -95,7 +98,9 @@ impl Value<AST> {
                     .map(|ast| ast.evaluate(ctx, reads, pushes))
                     .collect::<Result<_, _>>()?,
             ))),
-            Value::BuiltinFunction(name) => Ok(EvaluatedValue(Value::BuiltinFunction(name.clone()))),
+            Value::BuiltinFunction(name) => {
+                Ok(EvaluatedValue(Value::BuiltinFunction(name.clone())))
+            }
         }
     }
 }
@@ -141,56 +146,39 @@ impl IntermediateRep for AST {
                     EvaluatedValue(Value::BuiltinFunction(name)) => name,
                     _ => return Err(Error::with_message("Uncallable type")),
                 };
-                let mut args = args.as_slice();
+
+                let evaluated_args = args
+                    .iter()
+                    .map(|ast| ast.evaluate(ctx, reads, pushes))
+                    .collect::<Result<Vec<Self::Value>, Self::Error>>()?;
 
                 macro_rules! eval_function {
-                    ($e:expr) => {
-                        match args {
-                            [] => $e,
-                            _ => Err(Error::with_message("Invalid number of arguments")),
+                    ( $([$( $pat:pat ),*] => $body:expr),+ $(,)?) => {
+                        match evaluated_args.as_slice() {
+                            $([ $( EvaluatedValue($pat) ),* ] => $body,)+
+                            _ => Err(Error::with_message("Invalid arguments")),
                         }
                     };
-
-                    ($e:expr, $x:pat $(,$y:pat)*) => {
-                        match args {
-                            [_, ..] => match args[0].evaluate(ctx, reads, pushes)? {
-                                EvaluatedValue($x) => {
-                                    args = &args[1..];
-                                    eval_function!($e $(,$y)*)
-                                }
-                                _ => Err(Error::with_message("Invalid argument type")),
-                            }
-                            [] => Err(Error::with_message("Invalid number of arguments")),
-                        }
-                    }
                 }
 
                 match func_name.as_str() {
                     "+" => eval_function!(
-                        Ok(Value::Integer(a + b).into()),
-                        Value::Integer(a),
-                        Value::Integer(b)
+                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a + b).into()),
                     ),
                     "-" => eval_function!(
-                        Ok(Value::Integer(a - b).into()),
-                        Value::Integer(a),
-                        Value::Integer(b)
+                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a - b).into()),
                     ),
                     "*" => eval_function!(
-                        Ok(Value::Integer(a * b).into()),
-                        Value::Integer(a),
-                        Value::Integer(b)
+                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a * b).into()),
                     ),
-                    "negate" => eval_function!(Ok(Value::Integer(-a).into()), Value::Integer(a)),
-
+                    "negate" => eval_function!(
+                        [Value::Integer(a)] => Ok(Value::Integer(-a).into()),
+                    ),
                     "dot" => eval_function!(
-                        fields.get(&name).cloned().ok_or_else(|| {
+                        [Value::Record(fields), Value::String(name)] => fields.get(name).cloned().ok_or_else(|| {
                             Error::with_message(format!("Unknown field \"{}\"", name))
                         }),
-                        Value::Record(fields),
-                        Value::String(name)
                     ),
-
                     _ => Err(Error::with_message(format!(
                         "Unknown function \"{}\"",
                         func_name
