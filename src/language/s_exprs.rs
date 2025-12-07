@@ -14,6 +14,7 @@ impl ToSExpr for EvaluatedValue {
 impl<T: ToSExpr> ToSExpr for Value<T> {
     fn to_s_expr(&self) -> String {
         match self {
+            Value::Unit => "()".to_string(),
             Value::Integer(i) => i.to_string(),
             Value::String(s) => s.clone(),
             Value::Record(fields) => format!(

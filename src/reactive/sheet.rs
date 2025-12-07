@@ -3,6 +3,7 @@ use crate::language::s_exprs::ToSExpr;
 use crate::maps::fastqueue::FastQueue;
 use crate::maps::pairmap::PairMap;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 
 use super::language::IntermediateRep;
 
@@ -20,7 +21,10 @@ struct Cell<IR: IntermediateRep> {
     parsed: Option<IR>,
 }
 
-impl<IR: IntermediateRep> Sheet<IR> {
+impl<IR: IntermediateRep> Sheet<IR>
+where
+    IR::Value: Debug,
+{
     /// Creates a new, empty sheet.
     pub fn new() -> Sheet<IR> {
         Sheet {
@@ -118,6 +122,11 @@ impl<IR: IntermediateRep> Sheet<IR> {
 
             for read in new_reads {
                 self.read_relations.insert(read, id.clone());
+            }
+
+            println!("{id:?} Pushes:");
+            for (target_id, values) in new_pushes {
+                println!("{target_id:?} -> {values:?}");
             }
         }
     }

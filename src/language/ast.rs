@@ -9,6 +9,7 @@ use super::parser::parse;
 
 #[derive(Debug, Clone)]
 pub enum Value<T> {
+    Unit,
     Integer(i64),
     String(String),
 
@@ -87,6 +88,7 @@ impl Value<AST> {
         pushes: &mut HashMap<CellId, Vec<EvaluatedValue>>,
     ) -> Result<EvaluatedValue, Error> {
         match self {
+            Value::Unit => Ok(EvaluatedValue(Value::Unit)),
             Value::Integer(i) => Ok(EvaluatedValue(Value::Integer(*i))),
             Value::String(s) => Ok(EvaluatedValue(Value::String(s.clone()))),
             Value::Record(m) => Ok(EvaluatedValue(Value::Record(
@@ -185,6 +187,13 @@ impl IntermediateRep for AST {
                         [Value::Record(fields), Value::String(name)] => fields.get(name).cloned().ok_or_else(|| {
                             Error::with_message(format!("Unknown field \"{}\"", name))
                         }),
+                    ),
+                    "push" => eval_function!(
+                        [Value::String(target), to_push] => {
+                            let results = pushes.entry(CellId(target.clone())).or_insert_with(Vec::new);
+                            results.push(to_push.clone().into());
+                            Ok(Value::Unit.into())
+                        },
                     ),
                     _ => Err(Error::with_message(format!(
                         "Unknown function \"{}\"",
