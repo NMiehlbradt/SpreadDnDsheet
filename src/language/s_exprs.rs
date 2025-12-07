@@ -51,7 +51,8 @@ impl ToSExpr for AST {
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
-            AST::Seq(first, second, ) => format!("(seq {} {})", first.to_s_expr(), second.to_s_expr()),
+            AST::Seq(first, second, ) => format!("(; {} {})", first.to_s_expr(), second.to_s_expr()),
+            AST::FieldAccess(record, field) => format!("(.{field} {})", record.to_s_expr()),
         }
     }
 }

@@ -34,6 +34,7 @@ pub enum AST {
     Name(String),
     Function(Box<AST>, Vec<AST>),
     Seq(Box<AST>, Box<AST>),
+    FieldAccess(Box<AST>, String),
 }
 
 #[derive(Debug, Clone)]
@@ -67,10 +68,7 @@ impl Error {
 
 impl AST {
     pub fn function(name: impl Into<String>, args: Vec<AST>) -> AST {
-        AST::Function(
-            Box::new(AST::Name(name.into())),
-            args,
-        )
+        AST::Function(Box::new(AST::Name(name.into())), args)
     }
 }
 
@@ -144,10 +142,22 @@ impl IntermediateRep for AST {
                 }
             }
 
-            AST::Seq(first, second, ) => {
+            AST::Seq(first, second) => {
                 first.evaluate(ctx, reads, pushes)?;
                 second.evaluate(ctx, reads, pushes)
-            },
+            }
+
+            AST::FieldAccess(record, field) => {
+                let record = record.evaluate(ctx, reads, pushes)?;
+                match record {
+                    EvaluatedValue(Value::Record(m)) => {
+                        Ok(m.get(field).cloned().ok_or(Error::with_message("Field does not exist"))?.into())
+                    }
+                    _ => Err(Error::with_message(
+                        "Cannot access the field of a non-record type",
+                    )),
+                }
+            }
 
             AST::Function(func_name, args) => {
                 let function = func_name.evaluate(ctx, reads, pushes)?;

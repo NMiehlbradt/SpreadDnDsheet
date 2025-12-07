@@ -291,8 +291,7 @@ impl<'a> Parser<'a> {
                     }
                     self.tokens.next();
                     let field = self.expect_token(TokenType::Name)?.text.to_string();
-                    let rhs = AST::Literal(Value::String(field));
-                    lhs = AST::function("dot", vec![lhs, rhs]);
+                    lhs = AST::FieldAccess(Box::new(lhs), field);
                 }
 
                 token_type!(LParen) => {
@@ -354,10 +353,10 @@ mod tests {
     test_parse_success!(test_negate2, "--1", "(negate (negate 1))");
     test_parse_success!(test_prec_left, "1 * 2 + 3", "(+ (* 1 2) 3)");
     test_parse_success!(test_prec_right, "1 + 2 * 3", "(+ 1 (* 2 3))");
-    test_parse_success!(test_dot, "a.b", "(dot a b)");
-    test_parse_success!(test_dot2, "a.b.c", "(dot (dot a b) c)");
-    test_parse_success!(test_dot_prec_left, "a.b + c", "(+ (dot a b) c)");
-    test_parse_success!(test_dot_prec_right, "a + b.c", "(+ a (dot b c))");
-    test_parse_success!(test_seq, "1; 2", "(seq 1 2)");
+    test_parse_success!(test_dot, "a.b", "(.b a)");
+    test_parse_success!(test_dot2, "a.b.c", "(.c (.b a))");
+    test_parse_success!(test_dot_prec_left, "a.b + c", "(+ (.b a) c)");
+    test_parse_success!(test_dot_prec_right, "a + b.c", "(+ a (.c b))");
+    test_parse_success!(test_seq, "1; 2", "(; 1 2)");
     
 }
