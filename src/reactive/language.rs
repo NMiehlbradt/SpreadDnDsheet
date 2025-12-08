@@ -11,6 +11,7 @@ pub trait IntermediateRep: Sized {
     fn evaluate(
         &self,
         ctx: &Sheet<Self>,
+        pushed_values: &Vec<Self::Value>,
         reads: &mut HashSet<CellId>,
         pushes: &mut HashMap<CellId, Vec<Self::Value>>,
     ) -> Result<Self::Value, Self::Error>;

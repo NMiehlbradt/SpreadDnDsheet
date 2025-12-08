@@ -16,7 +16,7 @@ impl<T: ToSExpr> ToSExpr for Value<T> {
         match self {
             Value::Unit => "()".to_string(),
             Value::Integer(i) => i.to_string(),
-            Value::String(s) => s.clone(),
+            Value::String(s) => format!("\"{s}\""),
             Value::Record(fields) => format!(
                 "{{{}}}",
                 fields

@@ -82,6 +82,7 @@ impl Value<AST> {
     fn evaluate(
         &self,
         ctx: &Sheet<AST>,
+        pushed_values: &Vec<EvaluatedValue>,
         reads: &mut HashSet<CellId>,
         pushes: &mut HashMap<CellId, Vec<EvaluatedValue>>,
     ) -> Result<EvaluatedValue, Error> {
@@ -91,12 +92,12 @@ impl Value<AST> {
             Value::String(s) => Ok(EvaluatedValue(Value::String(s.clone()))),
             Value::Record(m) => Ok(EvaluatedValue(Value::Record(
                 m.iter()
-                    .map(|(k, v)| v.evaluate(ctx, reads, pushes).map(|ev| (k.clone(), ev)))
+                    .map(|(k, v)| v.evaluate(ctx, pushed_values, reads, pushes).map(|ev| (k.clone(), ev)))
                     .collect::<Result<BTreeMap<String, EvaluatedValue>, _>>()?,
             ))),
             Value::List(l) => Ok(EvaluatedValue(Value::List(
                 l.iter()
-                    .map(|ast| ast.evaluate(ctx, reads, pushes))
+                    .map(|ast| ast.evaluate(ctx, pushed_values, reads, pushes))
                     .collect::<Result<_, _>>()?,
             ))),
             Value::BuiltinFunction(name) => {
@@ -126,11 +127,12 @@ impl IntermediateRep for AST {
     fn evaluate(
         &self,
         ctx: &Sheet<Self>,
+        pushed_values: &Vec<EvaluatedValue>,
         reads: &mut HashSet<CellId>,
         pushes: &mut HashMap<CellId, Vec<Self::Value>>,
     ) -> Result<Self::Value, Self::Error> {
         match self {
-            AST::Literal(value) => Ok(value.evaluate(ctx, reads, pushes)?),
+            AST::Literal(value) => Ok(value.evaluate(ctx, pushed_values, reads, pushes)?),
 
             AST::Name(name) => {
                 let cell_id = CellId(name.clone());
@@ -143,12 +145,12 @@ impl IntermediateRep for AST {
             }
 
             AST::Seq(first, second) => {
-                first.evaluate(ctx, reads, pushes)?;
-                second.evaluate(ctx, reads, pushes)
+                first.evaluate(ctx, pushed_values, reads, pushes)?;
+                second.evaluate(ctx, pushed_values, reads, pushes)
             }
 
             AST::FieldAccess(record, field) => {
-                let record = record.evaluate(ctx, reads, pushes)?;
+                let record = record.evaluate(ctx, pushed_values, reads, pushes)?;
                 match record {
                     EvaluatedValue(Value::Record(m)) => {
                         Ok(m.get(field).cloned().ok_or(Error::with_message("Field does not exist"))?.into())
@@ -160,7 +162,7 @@ impl IntermediateRep for AST {
             }
 
             AST::Function(func_name, args) => {
-                let function = func_name.evaluate(ctx, reads, pushes)?;
+                let function = func_name.evaluate(ctx, pushed_values, reads, pushes)?;
                 let func_name = match function {
                     EvaluatedValue(Value::BuiltinFunction(name)) => name,
                     _ => return Err(Error::with_message("Uncallable type")),
@@ -168,7 +170,7 @@ impl IntermediateRep for AST {
 
                 let evaluated_args = args
                     .iter()
-                    .map(|ast| ast.evaluate(ctx, reads, pushes))
+                    .map(|ast| ast.evaluate(ctx, pushed_values, reads, pushes))
                     .collect::<Result<Vec<Self::Value>, Self::Error>>()?;
 
                 macro_rules! eval_function {
@@ -205,6 +207,9 @@ impl IntermediateRep for AST {
                             Ok(Value::Unit.into())
                         },
                     ),
+                    "read" => eval_function!([] => {
+                        Ok(Value::List(pushed_values.clone()).into())
+                    }),
                     _ => Err(Error::with_message(format!(
                         "Unknown function \"{}\"",
                         func_name

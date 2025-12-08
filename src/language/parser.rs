@@ -216,7 +216,8 @@ impl<'a> Parser<'a> {
                     .map_err(|_| Error::parse_error("Invalid int"))?,
             )),
             // String Literals
-            token_type!(StringLit, text) => AST::Literal(Value::String(text.to_string())), //TODO escape chars
+            // Trim the quotes
+            token_type!(StringLit, text) => AST::Literal(Value::String(text[1..text.len() - 1].to_string())), //TODO escape chars
             // List Literals
             token_type!(LBrack) => {
                 comma_seperated!(RBrack, elements, self.parse_expr(0)?);
