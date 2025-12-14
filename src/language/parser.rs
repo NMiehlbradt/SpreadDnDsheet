@@ -2,10 +2,9 @@ use std::iter::Peekable;
 
 use plex::lexer;
 
-use crate::language::ast::Value;
 use crate::language::ast::AST;
-
-use super::ast::Error;
+use crate::language::ast::Value;
+use crate::language::errors::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenType {
@@ -47,7 +46,7 @@ lexer! {
 
     r#"\("# => TokenType::LParen,
     r#"\)"# => TokenType::RParen,
-    
+
     r#"\["# => TokenType::LBrack,
     r#"\]"# => TokenType::RBrack,
 
@@ -177,7 +176,6 @@ impl<'a> Parser<'a> {
     ///
     /// Returns the parsed expression, or an error if the expression is invalid.
     fn parse_expr(&mut self, min_bp: u8) -> Result<AST, Error> {
-        
         // Generates a pattern for a token struct which matches a specific token type
         macro_rules! token_type {
             ($token_type:ident) => {
@@ -206,7 +204,7 @@ impl<'a> Parser<'a> {
                     }
                     self.expect_token(TokenType::$close)?;
                 }
-            }
+            };
         }
 
         let mut lhs = match self.next() {
@@ -217,7 +215,9 @@ impl<'a> Parser<'a> {
             )),
             // String Literals
             // Trim the quotes
-            token_type!(StringLit, text) => AST::Literal(Value::String(text[1..text.len() - 1].to_string())), //TODO escape chars
+            token_type!(StringLit, text) => {
+                AST::Literal(Value::String(text[1..text.len() - 1].to_string()))
+            } //TODO escape chars
             // List Literals
             token_type!(LBrack) => {
                 comma_seperated!(RBrack, elements, self.parse_expr(0)?);
@@ -330,8 +330,8 @@ fn postfix(bp: u8) -> (u8, ()) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::s_exprs::ToSExpr;
+    use super::*;
 
     macro_rules! test_parse_success {
         ($test_name:ident, $input:expr, $expected:expr) => {
@@ -359,5 +359,4 @@ mod tests {
     test_parse_success!(test_dot_prec_left, "a.b + c", "(+ (.b a) c)");
     test_parse_success!(test_dot_prec_right, "a + b.c", "(+ a (.c b))");
     test_parse_success!(test_seq, "1; 2", "(; 1 2)");
-    
 }

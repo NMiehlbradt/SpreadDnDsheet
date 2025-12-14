@@ -1,3 +1,5 @@
 pub mod ast;
-pub mod s_exprs;
+mod errors;
 mod parser;
+pub mod s_exprs;
+pub mod treewalk;
