@@ -183,6 +183,7 @@ impl IntermediateRep for AST {
                 }
 
                 match func_name.as_str() {
+                    // Math Operations
                     "+" => eval_function!(
                         [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a + b).into()),
                     ),
@@ -195,11 +196,7 @@ impl IntermediateRep for AST {
                     "negate" => eval_function!(
                         [Value::Integer(a)] => Ok(Value::Integer(-a).into()),
                     ),
-                    "dot" => eval_function!(
-                        [Value::Record(fields), Value::String(name)] => fields.get(name).cloned().ok_or_else(|| {
-                            Error::with_message(format!("Unknown field \"{}\"", name))
-                        }),
-                    ),
+                    // Push value operations
                     "push" => eval_function!(
                         [Value::String(target), to_push] => {
                             let results = pushes.entry(CellId(target.clone())).or_insert_with(Vec::new);
@@ -210,6 +207,18 @@ impl IntermediateRep for AST {
                     "read" => eval_function!([] => {
                         Ok(Value::List(pushed_values.clone()).into())
                     }),
+                    // Misc
+                    "index" => eval_function!(
+                        [Value::List(l), Value::Integer(i)] => {
+                            let len = l.len() as i64;
+                            if *i < 0 || *i >= len {
+                                Err(Error::with_message("Index out of range"))
+                            } else {
+                                Ok(l[*i as usize].clone().into())
+                            }
+                        }
+                    ),
+                    // Error case
                     _ => Err(Error::with_message(format!(
                         "Unknown function \"{}\"",
                         func_name
