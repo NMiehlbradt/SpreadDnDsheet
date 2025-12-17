@@ -17,6 +17,7 @@ struct InterpreterCtx<'a> {
     pushed_values: &'a Vec<EvaluatedValue>,
     reads: &'a mut HashSet<CellId>,
     pushes: &'a mut HashMap<CellId, Vec<EvaluatedValue>>,
+    local_vars: HashMap<String, EvaluatedValue>,
 }
 
 impl InterpreterCtx<'_> {
@@ -31,7 +32,22 @@ impl InterpreterCtx<'_> {
             pushed_values,
             reads,
             pushes,
+            local_vars: HashMap::new(),
         }
+    }
+
+    fn empty_context<'a>(&'a mut self) -> InterpreterCtx<'a> {
+        InterpreterCtx {
+            ctx: self.ctx,
+            pushed_values: self.pushed_values,
+            reads: self.reads,
+            pushes: self.pushes,
+            local_vars: HashMap::new(),
+        }
+    }
+
+    fn add_local_var(&mut self, name: String, value: EvaluatedValue) {
+        self.local_vars.insert(name, value);
     }
 
     fn evaluate(&mut self, ast: &AST) -> Result<EvaluatedValue, Error> {
@@ -39,8 +55,11 @@ impl InterpreterCtx<'_> {
             AST::Literal(value) => Ok(self.evaluate_value(value)?),
 
             AST::Name(name) => {
+                // TODO: Tidy this up and don't allow cells to shadow builtin definitions
                 let cell_id = CellId(name.clone());
-                if let Some(value) = self.ctx.get_cell_value(&cell_id) {
+                if let Some(value) = self.local_vars.get(name) {
+                    Ok(value.clone())
+                } else if let Some(value) = self.ctx.get_cell_value(&cell_id) {
                     self.reads.insert(cell_id.clone());
                     value.clone().map_err(|_| Error::propogated_error(&cell_id))
                 } else {
@@ -67,25 +86,39 @@ impl InterpreterCtx<'_> {
                 }
             }
 
-            AST::Let(_name, _value) => {
-                todo!()
+            AST::Let(name, value) => {
+                let evaluated_value = self.evaluate(value)?;
+                self.add_local_var(name.clone(), evaluated_value);
+                Ok(Value::Unit.into())
             }
 
             AST::Function(func_name, args) => {
                 let function = self.evaluate(func_name)?;
-                let func_name = match function {
-                    EvaluatedValue(Value::BuiltinFunction(name)) => name,
-                    _ => return Err(Error::with_message("Uncallable type")),
-                };
 
                 let evaluated_args =
                     args.iter()
                         .map(|ast| self.evaluate(ast))
-                        .collect::<Result<Vec<EvaluatedValue>, Error>>()?;
+                        .collect::<Result<Vec<EvaluatedValue>, Error>>();
+
+                let func_name = match function {
+                    EvaluatedValue(Value::BuiltinFunction(name)) => name,
+                    EvaluatedValue(Value::Lambda(args, body)) => {
+                        let mut ctx = self.empty_context();
+                        let evaluated_args = evaluated_args?;
+                        for (name, arg) in args.iter().zip(evaluated_args.iter()) {
+                            ctx.add_local_var(name.clone(), arg.clone());
+                        }
+                        if args.len() != evaluated_args.len() {
+                            return Err(Error::with_message("Incorrect number of arguments"));
+                        }
+                        return ctx.evaluate(&body)
+                    },
+                    _ => return Err(Error::with_message("Uncallable type")),
+                };
 
                 macro_rules! eval_function {
                     ( $([$( $pat:pat ),*] => $body:expr),+ $(,)?) => {
-                        match evaluated_args.as_slice() {
+                        match evaluated_args?.as_slice() {
                             $([ $( EvaluatedValue($pat) ),* ] => $body,)+
                             _ => Err(Error::with_message("Invalid arguments")),
                         }
