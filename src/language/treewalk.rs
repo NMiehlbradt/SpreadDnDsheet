@@ -67,6 +67,10 @@ impl InterpreterCtx<'_> {
                 }
             }
 
+            AST::Let(_name, _value) => {
+                todo!()
+            }
+
             AST::Function(func_name, args) => {
                 let function = self.evaluate(func_name)?;
                 let func_name = match function {
@@ -152,6 +156,7 @@ impl InterpreterCtx<'_> {
             Value::BuiltinFunction(name) => {
                 Ok(EvaluatedValue(Value::BuiltinFunction(name.clone())))
             }
+            Value::Lambda(params, code) => Ok(EvaluatedValue(Value::Lambda(params.clone(), code.clone())))
         }
     }
 }

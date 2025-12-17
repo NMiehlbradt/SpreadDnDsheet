@@ -34,6 +34,9 @@ impl<T: ToSExpr> ToSExpr for Value<T> {
                     .join(", ")
             ),
             Value::BuiltinFunction(name) => name.clone(),
+            Value::Lambda(params, body) => {
+                format!("(lambda ({}) {})", params.join(", "), body.to_s_expr())
+            }
         }
     }
 }
@@ -53,6 +56,7 @@ impl ToSExpr for AST {
             ),
             AST::Seq(first, second) => format!("(; {} {})", first.to_s_expr(), second.to_s_expr()),
             AST::FieldAccess(record, field) => format!("(.{field} {})", record.to_s_expr()),
+            AST::Let(name, value) => format!("(let {} {})", name, value.to_s_expr()),
         }
     }
 }

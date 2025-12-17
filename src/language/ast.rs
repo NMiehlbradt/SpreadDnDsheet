@@ -12,6 +12,7 @@ pub enum Value<T> {
     List(Vec<T>),
 
     BuiltinFunction(String),
+    Lambda(Vec<String>, Box<AST>),
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +31,7 @@ pub enum AST {
     Function(Box<AST>, Vec<AST>),
     Seq(Box<AST>, Box<AST>),
     FieldAccess(Box<AST>, String),
+    Let(String, Box<AST>),
 }
 
 pub fn pretty_print_result(res: &Result<EvaluatedValue, Error>) -> String {
