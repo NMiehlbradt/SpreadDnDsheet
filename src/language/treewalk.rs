@@ -12,12 +12,45 @@ use crate::{
     },
 };
 
+struct Scope<'a> {
+    vars: HashMap<String, EvaluatedValue>,
+    parent: Option<&'a Scope<'a>>,
+}
+
+impl<'a> Scope<'a> {
+    fn new() -> Self {
+        Scope {
+            vars: HashMap::new(),
+            parent: None,
+        }
+    }
+
+    fn new_with_parent(parent: &'a Self) -> Self {
+        Scope {
+            vars: HashMap::new(),
+            parent: Some(parent),
+        }
+    }
+
+    fn lookup(&self, name: &String) -> Option<EvaluatedValue> {
+        if let Some(value) = self.vars.get(name) {
+            Some(value.clone())
+        } else {
+            self.parent.as_ref().and_then(|s| s.lookup(name))
+        } 
+    }
+
+    fn insert(&mut self, name: String, value: EvaluatedValue) {
+        self.vars.insert(name, value);
+    }
+}
+
 struct InterpreterCtx<'a> {
     ctx: &'a Sheet<AST>,
     pushed_values: &'a Vec<EvaluatedValue>,
     reads: &'a mut HashSet<CellId>,
     pushes: &'a mut HashMap<CellId, Vec<EvaluatedValue>>,
-    local_vars: HashMap<String, EvaluatedValue>,
+    local_vars: Scope<'a>,
 }
 
 impl InterpreterCtx<'_> {
@@ -32,17 +65,29 @@ impl InterpreterCtx<'_> {
             pushed_values,
             reads,
             pushes,
-            local_vars: HashMap::new(),
+            local_vars: Scope::new(),
         }
     }
 
+    // Creates a new InterpreterCtx from the current one, but with an empty scope
     fn empty_context<'a>(&'a mut self) -> InterpreterCtx<'a> {
         InterpreterCtx {
             ctx: self.ctx,
             pushed_values: self.pushed_values,
             reads: self.reads,
             pushes: self.pushes,
-            local_vars: HashMap::new(),
+            local_vars: Scope::new(),
+        }
+    }
+
+    // Creates a new InterpreterCtx from the current one, but creating an inner scope
+    fn push_scope<'a>(&'a mut self) -> InterpreterCtx<'a> {
+        InterpreterCtx {
+            ctx: self.ctx,
+            pushed_values: self.pushed_values,
+            reads: self.reads,
+            pushes: self.pushes,
+            local_vars: Scope::new_with_parent(&self.local_vars),
         }
     }
 
@@ -57,7 +102,7 @@ impl InterpreterCtx<'_> {
             AST::Name(name) => {
                 // TODO: Tidy this up and don't allow cells to shadow builtin definitions
                 let cell_id = CellId(name.clone());
-                if let Some(value) = self.local_vars.get(name) {
+                if let Some(value) = self.local_vars.lookup(name) {
                     Ok(value.clone())
                 } else if let Some(value) = self.ctx.get_cell_value(&cell_id) {
                     self.reads.insert(cell_id.clone());
@@ -97,7 +142,7 @@ impl InterpreterCtx<'_> {
 
                 let evaluated_args =
                     args.iter()
-                        .map(|ast| self.evaluate(ast))
+                        .map(|ast| self.push_scope().evaluate(ast))
                         .collect::<Result<Vec<EvaluatedValue>, Error>>();
 
                 let func_name = match function {
@@ -178,12 +223,12 @@ impl InterpreterCtx<'_> {
             Value::String(s) => Ok(EvaluatedValue(Value::String(s.clone()))),
             Value::Record(m) => Ok(EvaluatedValue(Value::Record(
                 m.iter()
-                    .map(|(k, v)| self.evaluate(v).map(|ev| (k.clone(), ev)))
+                    .map(|(k, v)| self.push_scope().evaluate(v).map(|ev| (k.clone(), ev)))
                     .collect::<Result<BTreeMap<String, EvaluatedValue>, _>>()?,
             ))),
             Value::List(l) => Ok(EvaluatedValue(Value::List(
                 l.iter()
-                    .map(|ast| self.evaluate(ast))
+                    .map(|ast| self.push_scope().evaluate(ast))
                     .collect::<Result<_, _>>()?,
             ))),
             Value::BuiltinFunction(name) => {
