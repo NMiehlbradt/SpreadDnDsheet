@@ -33,7 +33,7 @@ impl<T: ToSExpr> ToSExpr for Value<T> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Value::BuiltinFunction(name) => name.clone(),
+            Value::BuiltinFunction(name) => format!("(builtin {name})"),
             Value::Lambda(params, body) => {
                 format!("(lambda ({}) {})", params.join(", "), body.to_s_expr())
             }
