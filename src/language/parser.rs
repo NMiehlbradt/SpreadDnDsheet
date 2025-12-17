@@ -26,10 +26,16 @@ pub enum TokenType {
     Dot,
     Colon,
     SemiColon,
+    Arrow,
+    Eq,
 
     Plus,
     Minus,
     Star,
+
+    // Keywords
+    Fn,
+    Let,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -57,6 +63,8 @@ lexer! {
     r#"\."# => TokenType::Dot,
     r#":"# => TokenType::Colon,
     r#";"# => TokenType::SemiColon,
+    r#"->"# => TokenType::Arrow,
+    r#"="# => TokenType::Eq,
 
     r#"\+"# => TokenType::Plus,
     r#"-"# => TokenType::Minus,
@@ -64,6 +72,9 @@ lexer! {
 
     r#"[0-9]+"# => TokenType::IntLit,
     r#""[^"]*""# => TokenType::StringLit, //TODO escape chars
+
+    r#"fn"# => TokenType::Fn,
+    r#"let"# => TokenType::Let,
 
     r#"[a-zA-Z_][a-zA-Z0-9_]*"# => TokenType::Name,
 
@@ -234,6 +245,23 @@ impl<'a> Parser<'a> {
                 AST::Literal(Value::Record(elements.into_iter().collect()))
             }
 
+            token_type!(Fn) => {
+                self.expect_token(TokenType::LParen)?;
+                comma_seperated!(RParen, params, self.expect_token(TokenType::Name)?.text.to_string());
+                self.expect_token(TokenType::Arrow)?;
+                let (_, right_bp) = prefix(2);
+                let body = self.parse_expr(right_bp)?;
+                AST::Literal(Value::Lambda(params, Box::new(body)))
+            }
+
+            token_type!(Let) => {
+                let name = self.expect_token(TokenType::Name)?.text.to_string();
+                self.expect_token(TokenType::Eq)?;
+                let (_, right_bp) = prefix(2);
+                let value = self.parse_expr(right_bp)?;
+                AST::Let(name, Box::new(value))
+            }
+
             // Names
             token_type!(Name, text) => AST::Name(text.to_string()),
 
@@ -270,9 +298,9 @@ impl<'a> Parser<'a> {
         loop {
             match self.peek().copied() {
                 // Infix operators
-                token_type!(Plus) => infix_op!(assoc_left(2), "+"),
-                token_type!(Minus) => infix_op!(assoc_left(2), "-"),
-                token_type!(Star) => infix_op!(assoc_left(3), "*"),
+                token_type!(Plus) => infix_op!(assoc_left(3), "+"),
+                token_type!(Minus) => infix_op!(assoc_left(3), "-"),
+                token_type!(Star) => infix_op!(assoc_left(4), "*"),
 
                 token_type!(SemiColon) => {
                     let (left_bp, right_bp) = assoc_right(1);
@@ -359,4 +387,16 @@ mod tests {
     test_parse_success!(test_dot_prec_left, "a.b + c", "(+ (.b a) c)");
     test_parse_success!(test_dot_prec_right, "a + b.c", "(+ a (.c b))");
     test_parse_success!(test_seq, "1; 2", "(; 1 2)");
+    
+    test_parse_success!(test_lambda, "fn () -> 1", "(lambda () 1)");
+    test_parse_success!(test_lambda2, "fn (x) -> x", "(lambda (x) x)");
+    test_parse_success!(test_lambda3, "fn (x, y) -> x + y", "(lambda (x, y) (+ x y))");
+    test_parse_success!(test_lambda_seq, "fn (x) -> (1; 2)", "(lambda (x) (; 1 2))");
+    test_parse_success!(test_lambda_seq2, "fn (x) -> 1; 2", "(; (lambda (x) 1) 2)");
+
+    test_parse_success!(test_let, "let x = 5", "(let x 5)");
+    test_parse_success!(test_let2, "let x = 5; 1", "(; (let x 5) 1)");
+    test_parse_success!(test_let3, "let x = 5; let y = 6; 1", "(; (let x 5) (; (let y 6) 1))");
+    test_parse_success!(test_let_lambda, "let f = fn (x) -> x", "(let f (lambda (x) x))");
+    test_parse_success!(test_let_lambda2, "let f = fn (x) -> x; f", "(; (let f (lambda (x) x)) f)");
 }
