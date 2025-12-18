@@ -54,9 +54,15 @@ impl ToSExpr for AST {
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
-            AST::Seq(first, second) => format!("(; {} {})", first.to_s_expr(), second.to_s_expr()),
             AST::FieldAccess(record, field) => format!("(.{field} {})", record.to_s_expr()),
-            AST::Let(name, value) => format!("(let {} {})", name, value.to_s_expr()),
+            AST::Let(bindings, expr) => {
+                let binding_s_exprs = bindings
+                    .iter()
+                    .map(|Binding(name, value)| format!("({} {})", name, value.to_s_expr()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!("(let ({}) {})", binding_s_exprs, expr.to_s_expr())
+            }
         }
     }
 }

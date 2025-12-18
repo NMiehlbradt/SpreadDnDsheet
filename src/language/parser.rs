@@ -3,6 +3,7 @@ use std::iter::Peekable;
 use plex::lexer;
 
 use crate::language::ast::AST;
+use crate::language::ast::Binding;
 use crate::language::ast::Value;
 use crate::language::errors::Error;
 
@@ -36,6 +37,7 @@ pub enum TokenType {
     // Keywords
     Fn,
     Let,
+    In,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -75,6 +77,7 @@ lexer! {
 
     r#"fn"# => TokenType::Fn,
     r#"let"# => TokenType::Let,
+    r#"in"# => TokenType::In,
 
     r#"[a-zA-Z_][a-zA-Z0-9_]*"# => TokenType::Name,
 
@@ -205,17 +208,18 @@ impl<'a> Parser<'a> {
         }
 
         // Parses a comma seperated list of a given parser, terminated by a close token
-        macro_rules! comma_seperated {
-            ($close:ident, $collect:ident, $parse:expr) => {
-                let mut $collect = vec![];
+        macro_rules! separated_by {
+            ($separator:ident, $parse:expr, $close:ident) => {{
+                let mut collect = vec![];
                 if self.next_if_eq(TokenType::$close).is_none() {
-                    $collect.push($parse);
-                    while self.next_if_eq(TokenType::Comma).is_some() {
-                        $collect.push($parse);
+                    collect.push($parse);
+                    while self.next_if_eq(TokenType::$separator).is_some() {
+                        collect.push($parse);
                     }
                     self.expect_token(TokenType::$close)?;
                 }
-            };
+                collect
+            }};
         }
 
         let mut lhs = match self.next() {
@@ -231,35 +235,37 @@ impl<'a> Parser<'a> {
             } //TODO escape chars
             // List Literals
             token_type!(LBrack) => {
-                comma_seperated!(RBrack, elements, self.parse_expr(0)?);
+                let elements = separated_by!(Comma, self.parse_expr(0)?, RBrack);
                 AST::Literal(Value::List(elements))
             }
             // Record Literals
             token_type!(LBrace) => {
-                comma_seperated!(RBrace, elements, {
+                let elements = separated_by!(Comma, {
                     let name = self.expect_token(TokenType::Name)?.text.to_string();
                     self.expect_token(TokenType::Colon)?;
                     let value = self.parse_expr(0)?;
                     (name, value)
-                });
+                }, RBrace);
                 AST::Literal(Value::Record(elements.into_iter().collect()))
             }
 
             token_type!(Fn) => {
                 self.expect_token(TokenType::LParen)?;
-                comma_seperated!(RParen, params, self.expect_token(TokenType::Name)?.text.to_string());
+                let params = separated_by!(Comma, self.expect_token(TokenType::Name)?.text.to_string(), RParen);
                 self.expect_token(TokenType::Arrow)?;
-                let (_, right_bp) = prefix(2);
-                let body = self.parse_expr(right_bp)?;
+                let body = self.parse_expr(0)?;
                 AST::Literal(Value::Lambda(params, Box::new(body)))
             }
 
             token_type!(Let) => {
-                let name = self.expect_token(TokenType::Name)?.text.to_string();
-                self.expect_token(TokenType::Eq)?;
-                let (_, right_bp) = prefix(2);
-                let value = self.parse_expr(right_bp)?;
-                AST::Let(name, Box::new(value))
+                let bindings = separated_by!(SemiColon, {
+                    let name = self.expect_token(TokenType::Name)?.text.to_string();
+                    self.expect_token(TokenType::Eq)?;
+                    let expr = self.parse_expr(0)?;
+                    Binding(name, expr)
+                }, In);
+                let expr = self.parse_expr(0)?;
+                AST::Let(bindings, Box::new(expr))
             }
 
             // Names
@@ -302,16 +308,6 @@ impl<'a> Parser<'a> {
                 token_type!(Minus) => infix_op!(assoc_left(3), "-"),
                 token_type!(Star) => infix_op!(assoc_left(4), "*"),
 
-                token_type!(SemiColon) => {
-                    let (left_bp, right_bp) = assoc_right(1);
-                    if left_bp < min_bp {
-                        break;
-                    }
-                    self.tokens.next();
-                    let rhs = self.parse_expr(right_bp)?;
-                    lhs = AST::Seq(Box::new(lhs), Box::new(rhs));
-                }
-
                 // Postfix operators
                 token_type!(Dot) => {
                     let (left_bp, _) = postfix(10);
@@ -329,7 +325,7 @@ impl<'a> Parser<'a> {
                         break;
                     }
                     self.tokens.next();
-                    comma_seperated!(RParen, args, self.parse_expr(0)?);
+                    let args = separated_by!(Comma, self.parse_expr(0)?, RParen);
                     lhs = AST::Function(Box::new(lhs), args)
                 }
                 _ => break,
@@ -386,17 +382,12 @@ mod tests {
     test_parse_success!(test_dot2, "a.b.c", "(.c (.b a))");
     test_parse_success!(test_dot_prec_left, "a.b + c", "(+ (.b a) c)");
     test_parse_success!(test_dot_prec_right, "a + b.c", "(+ a (.c b))");
-    test_parse_success!(test_seq, "1; 2", "(; 1 2)");
-    
+
     test_parse_success!(test_lambda, "fn () -> 1", "(lambda () 1)");
     test_parse_success!(test_lambda2, "fn (x) -> x", "(lambda (x) x)");
     test_parse_success!(test_lambda3, "fn (x, y) -> x + y", "(lambda (x, y) (+ x y))");
-    test_parse_success!(test_lambda_seq, "fn (x) -> (1; 2)", "(lambda (x) (; 1 2))");
-    test_parse_success!(test_lambda_seq2, "fn (x) -> 1; 2", "(; (lambda (x) 1) 2)");
 
-    test_parse_success!(test_let, "let x = 5", "(let x 5)");
-    test_parse_success!(test_let2, "let x = 5; 1", "(; (let x 5) 1)");
-    test_parse_success!(test_let3, "let x = 5; let y = 6; 1", "(; (let x 5) (; (let y 6) 1))");
-    test_parse_success!(test_let_lambda, "let f = fn (x) -> x", "(let f (lambda (x) x))");
-    test_parse_success!(test_let_lambda2, "let f = fn (x) -> x; f", "(; (let f (lambda (x) x)) f)");
+    test_parse_success!(test_let, "let x = 5 in x", "(let ((x 5)) x)");
+    test_parse_success!(test_let2, "let x = 5; y = 3 in 1", "(let ((x 5) (y 3)) 1)");
+    test_parse_success!(test_let_lambda, "let f = fn (x) -> x in f(5)", "(let ((f (lambda (x) x))) (f 5))");
 }

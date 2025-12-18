@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::{
     language::{
-        ast::{AST, EvaluatedValue, Value},
+        ast::{AST, Binding, EvaluatedValue, Value},
         errors::Error,
         parser::parse,
     },
@@ -12,12 +12,12 @@ use crate::{
     },
 };
 
-struct Scope<'a> {
-    vars: HashMap<String, EvaluatedValue>,
-    parent: Option<&'a Scope<'a>>,
+struct Scope<'a, T> {
+    vars: HashMap<String, T>,
+    parent: Option<&'a Scope<'a, T>>,
 }
 
-impl<'a> Scope<'a> {
+impl<'a, T: Clone> Scope<'a, T> {
     fn new() -> Self {
         Scope {
             vars: HashMap::new(),
@@ -32,15 +32,15 @@ impl<'a> Scope<'a> {
         }
     }
 
-    fn lookup(&self, name: &String) -> Option<EvaluatedValue> {
+    fn lookup(&self, name: &String) -> Option<T> {
         if let Some(value) = self.vars.get(name) {
             Some(value.clone())
         } else {
             self.parent.as_ref().and_then(|s| s.lookup(name))
-        } 
+        }
     }
 
-    fn insert(&mut self, name: String, value: EvaluatedValue) {
+    fn insert(&mut self, name: String, value: T) {
         self.vars.insert(name, value);
     }
 }
@@ -50,7 +50,7 @@ struct InterpreterCtx<'a> {
     pushed_values: &'a Vec<EvaluatedValue>,
     reads: &'a mut HashSet<CellId>,
     pushes: &'a mut HashMap<CellId, Vec<EvaluatedValue>>,
-    local_vars: Scope<'a>,
+    local_vars: Scope<'a, EvaluatedValue>,
 }
 
 impl InterpreterCtx<'_> {
@@ -111,12 +111,6 @@ impl InterpreterCtx<'_> {
                     Ok(Value::BuiltinFunction(name.clone()).into())
                 }
             }
-
-            AST::Seq(first, second) => {
-                self.evaluate(first)?;
-                self.evaluate(second)
-            }
-
             AST::FieldAccess(record, field) => {
                 let record = self.evaluate(record)?;
                 match record {
@@ -131,19 +125,22 @@ impl InterpreterCtx<'_> {
                 }
             }
 
-            AST::Let(name, value) => {
-                let evaluated_value = self.evaluate(value)?;
-                self.add_local_var(name.clone(), evaluated_value);
-                Ok(Value::Unit.into())
+            AST::Let(bindings, expr) => {
+                let mut inner_scope = self.push_scope();
+                for Binding(name, expr) in bindings {
+                    let value = inner_scope.evaluate(expr)?;
+                    inner_scope.add_local_var(name.clone(), value);
+                }
+                inner_scope.evaluate(expr)
             }
 
             AST::Function(func_name, args) => {
                 let function = self.evaluate(func_name)?;
 
-                let evaluated_args =
-                    args.iter()
-                        .map(|ast| self.push_scope().evaluate(ast))
-                        .collect::<Result<Vec<EvaluatedValue>, Error>>();
+                let evaluated_args = args
+                    .iter()
+                    .map(|ast| self.evaluate(ast))
+                    .collect::<Result<Vec<EvaluatedValue>, Error>>();
 
                 let func_name = match function {
                     EvaluatedValue(Value::BuiltinFunction(name)) => name,
@@ -156,8 +153,8 @@ impl InterpreterCtx<'_> {
                         if args.len() != evaluated_args.len() {
                             return Err(Error::with_message("Incorrect number of arguments"));
                         }
-                        return ctx.evaluate(&body)
-                    },
+                        return ctx.evaluate(&body);
+                    }
                     _ => return Err(Error::with_message("Uncallable type")),
                 };
 
@@ -223,12 +220,12 @@ impl InterpreterCtx<'_> {
             Value::String(s) => Ok(EvaluatedValue(Value::String(s.clone()))),
             Value::Record(m) => Ok(EvaluatedValue(Value::Record(
                 m.iter()
-                    .map(|(k, v)| self.push_scope().evaluate(v).map(|ev| (k.clone(), ev)))
+                    .map(|(k, v)| self.evaluate(v).map(|ev| (k.clone(), ev)))
                     .collect::<Result<BTreeMap<String, EvaluatedValue>, _>>()?,
             ))),
             Value::List(l) => Ok(EvaluatedValue(Value::List(
                 l.iter()
-                    .map(|ast| self.push_scope().evaluate(ast))
+                    .map(|ast| self.evaluate(ast))
                     .collect::<Result<_, _>>()?,
             ))),
             Value::BuiltinFunction(name) => {

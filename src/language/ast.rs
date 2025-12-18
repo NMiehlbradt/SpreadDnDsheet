@@ -25,13 +25,15 @@ impl From<Value<EvaluatedValue>> for EvaluatedValue {
 }
 
 #[derive(Debug, Clone)]
+pub struct Binding(pub String, pub AST);
+
+#[derive(Debug, Clone)]
 pub enum AST {
     Literal(Value<AST>),
     Name(String),
     Function(Box<AST>, Vec<AST>),
-    Seq(Box<AST>, Box<AST>),
     FieldAccess(Box<AST>, String),
-    Let(String, Box<AST>),
+    Let(Vec<Binding>, Box<AST>),
 }
 
 pub fn pretty_print_result(res: &Result<EvaluatedValue, Error>) -> String {
