@@ -24,6 +24,34 @@ impl From<Value<EvaluatedValue>> for EvaluatedValue {
     }
 }
 
+impl From<EvaluatedValue> for AST {
+    fn from(value: EvaluatedValue) -> Self {
+        AST::Literal(value.0.into())
+    }
+}
+
+impl From<EvaluatedValue> for Value<AST> {
+    fn from(value: EvaluatedValue) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<Value<EvaluatedValue>> for Value<AST> {
+    fn from(value: Value<EvaluatedValue>) -> Self {
+        match value {
+            Value::Unit => Value::Unit,
+            Value::Integer(i) => Value::Integer(i),
+            Value::String(s) => Value::String(s),
+            Value::Record(fields) => {
+                Value::Record(fields.into_iter().map(|(k, v)| (k, v.into())).collect())
+            }
+            Value::List(items) => Value::List(items.into_iter().map(Into::into).collect()),
+            Value::BuiltinFunction(function) => Value::BuiltinFunction(function),
+            Value::Lambda(args, body) => Value::Lambda(args, body),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Binding(pub String, pub AST);
 

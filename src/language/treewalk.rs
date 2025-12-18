@@ -231,7 +231,78 @@ impl InterpreterCtx<'_> {
             Value::BuiltinFunction(name) => {
                 Ok(EvaluatedValue(Value::BuiltinFunction(name.clone())))
             }
-            Value::Lambda(params, code) => Ok(EvaluatedValue(Value::Lambda(params.clone(), code.clone())))
+            Value::Lambda(params, body) => Ok(EvaluatedValue(Value::Lambda(
+                params.clone(),
+                Box::new(self.capture_values(
+                    &mut {
+                        let mut locals = Scope::new();
+                        for param in params.iter() {
+                            locals.insert(param.clone(), ());
+                        }
+                        locals
+                    },
+                    body,
+                )),
+            ))),
+        }
+    }
+
+    fn capture_values(&self, local_scope: &mut Scope<()>, ast: &AST) -> AST {
+        match ast {
+            AST::Literal(value) => AST::Literal(match value {
+                Value::Record(fields) => Value::Record(
+                    fields
+                        .iter()
+                        .map(|(k, v)| (k.clone(), self.capture_values(local_scope, v)))
+                        .collect(),
+                ),
+                Value::List(items) => Value::List(
+                    items
+                        .iter()
+                        .map(|i| self.capture_values(local_scope, i))
+                        .collect(),
+                ),
+                Value::Lambda(args, ast) => Value::Lambda(args.clone(), {
+                    let mut inner_scope = Scope::new_with_parent(local_scope);
+                    for arg in args {
+                        inner_scope.insert(arg.clone(), ());
+                    }
+                    Box::new(self.capture_values(&mut inner_scope, ast))
+                }),
+                value => value.clone(),
+            }),
+            AST::Name(name) => {
+                if let Some(value) = self.local_vars.lookup(name) {
+                    value.into()
+                } else {
+                    ast.clone()
+                }
+            },
+            AST::Function(function, args) => AST::Function(
+                Box::new(self.capture_values(local_scope, function)),
+                args.iter()
+                    .map(|a| self.capture_values(local_scope, a))
+                    .collect(),
+            ),
+            AST::FieldAccess(ast, field) => AST::FieldAccess(
+                Box::new(self.capture_values(local_scope, ast)),
+                field.clone(),
+            ),
+            AST::Let(bindings, ast) => {
+                let mut inner_scope = Scope::new_with_parent(local_scope);
+                let new_bindings = bindings
+                    .iter()
+                    .map(|Binding(name, expr)| {
+                        let new_expr = self.capture_values(&mut inner_scope, expr);
+                        inner_scope.insert(name.clone(), ());
+                        Binding(name.clone(), new_expr)
+                    })
+                    .collect();
+                AST::Let(
+                    new_bindings,
+                    Box::new(self.capture_values(&mut inner_scope, ast)),
+                )
+            }
         }
     }
 }
