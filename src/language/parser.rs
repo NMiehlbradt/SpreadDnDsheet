@@ -6,6 +6,7 @@ use crate::language::ast::AST;
 use crate::language::ast::Binding;
 use crate::language::ast::Value;
 use crate::language::errors::Error;
+use crate::language::parser::precedence::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenType {
@@ -53,7 +54,7 @@ pub enum TokenType {
     LtEq,
 
     // Misc Operators
-    PlusPlus, // List concatenation
+    PlusPlus,   // List concatenation
     SlashSlash, // Record merge
 
     // Keywords
@@ -173,9 +174,9 @@ impl Error {
 /// Returns an error if the string is not a valid expression.
 pub fn parse(text: &str) -> Result<AST, Error> {
     let mut parser = Parser::new(text);
-    let expr = parser.parse_expr(0);
+    let expr = parser.parse_expr(BindingPower::zero())?;
     match parser.next() {
-        None => expr,
+        None => Ok(expr),
         Some(t) => Err(Error::parse_error(format!("Unexpected token: {}", t.text))),
     }
 }
@@ -227,8 +228,11 @@ impl<'a> Parser<'a> {
     /// will not be parsed as part of the expression.
     ///
     /// Returns the parsed expression, or an error if the expression is invalid.
-    fn parse_expr(&mut self, min_bp: u8) -> Result<AST, Error> {
+    fn parse_expr(&mut self, min_bp: BindingPower) -> Result<AST, Error> {
         // Generates a pattern for a token struct which matches a specific token type
+
+        let mut lhs;
+
         macro_rules! token_type {
             ($token_type:ident) => {
                 Some(Token {
@@ -260,114 +264,136 @@ impl<'a> Parser<'a> {
             }};
         }
 
-        let mut lhs = match self.next() {
+        // Handles infix operators
+        // Specify the precidence and the literal string used to represent the operator in the AST
+        macro_rules! infix_op {
+            ($prec:expr, $assoc:ident, $func:literal) => {{
+                let prec = BindingPower::infix($prec, Assoc::$assoc);
+                if should_break(&prec, &min_bp)? {
+                    break;
+                }
+                self.tokens.next();
+                let rhs = self.parse_expr(prec)?;
+                lhs = AST::function($func, vec![lhs, rhs]);
+            }};
+        }
+
+        macro_rules! prefix_op {
+            ($prec:expr, $func:literal) => {{
+                let rhs = self.parse_expr(BindingPower::prefix($prec))?;
+                AST::function($func, vec![rhs])
+            }};
+        }
+
+        macro_rules! postfix_op {
+            ($prec:expr, $func:expr) => {{
+                if should_break(&BindingPower::postfix($prec), &min_bp)? {
+                    break;
+                }
+                self.tokens.next();
+                lhs = $func;
+            }};
+        }
+
+        lhs = match self.next() {
             // Integer Literals
             token_type!(IntLit, text) => AST::Literal(Value::Integer(
                 text.parse()
                     .map_err(|_| Error::parse_error("Invalid int"))?,
             )),
+
             // String Literals
             // Trim the quotes
             token_type!(StringLit, text) => {
                 AST::Literal(Value::String(text[1..text.len() - 1].to_string()))
             } //TODO escape chars
+
             // List Literals
             token_type!(LBrack) => {
-                let elements = separated_by!(Comma, self.parse_expr(0)?, RBrack);
+                let elements = separated_by!(Comma, self.parse_expr(BindingPower::zero())?, RBrack);
                 AST::Literal(Value::List(elements))
             }
+
             // Record Literals
             token_type!(LBrace) => {
-                let elements = separated_by!(Comma, {
-                    let name = self.expect_token(TokenType::Name)?.text.to_string();
-                    self.expect_token(TokenType::Colon)?;
-                    let value = self.parse_expr(0)?;
-                    (name, value)
-                }, RBrace);
+                let elements = separated_by!(
+                    Comma,
+                    {
+                        let name = self.expect_token(TokenType::Name)?.text.to_string();
+                        self.expect_token(TokenType::Colon)?;
+                        let value = self.parse_expr(BindingPower::zero())?;
+                        (name, value)
+                    },
+                    RBrace
+                );
                 AST::Literal(Value::Record(elements.into_iter().collect()))
             }
+
+            // Boolean literals
             token_type!(True) => AST::Literal(Value::Boolean(true)),
             token_type!(False) => AST::Literal(Value::Boolean(false)),
 
             token_type!(Fn) => {
                 self.expect_token(TokenType::LParen)?;
-                let params = separated_by!(Comma, self.expect_token(TokenType::Name)?.text.to_string(), RParen);
+                let params = separated_by!(
+                    Comma,
+                    self.expect_token(TokenType::Name)?.text.to_string(),
+                    RParen
+                );
                 self.expect_token(TokenType::Arrow)?;
-                let body = self.parse_expr(0)?;
+                let body = self.parse_expr(BindingPower::zero())?;
                 AST::Literal(Value::Lambda(params, Box::new(body)))
             }
 
             token_type!(Let) => {
-                let bindings = separated_by!(SemiColon, {
-                    let name = self.expect_token(TokenType::Name)?.text.to_string();
-                    self.expect_token(TokenType::Eq)?;
-                    let expr = self.parse_expr(0)?;
-                    Binding(name, expr)
-                }, In);
-                let expr = self.parse_expr(0)?;
+                let bindings = separated_by!(
+                    SemiColon,
+                    {
+                        let name = self.expect_token(TokenType::Name)?.text.to_string();
+                        self.expect_token(TokenType::Eq)?;
+                        let expr = self.parse_expr(BindingPower::zero())?;
+                        Binding(name, expr)
+                    },
+                    In
+                );
+                let expr = self.parse_expr(BindingPower::zero())?;
                 AST::Let(bindings, Box::new(expr))
             }
 
             // Names
             token_type!(Name, text) => AST::Name(text.to_string()),
 
-            // Prefix operators
-            token_type!(Minus) => {
-                let (_, right_bp) = prefix(5);
-                let rhs = self.parse_expr(right_bp)?;
-                AST::function("negate", vec![rhs])
-            }
-
             // Brackets
             token_type!(LParen) => {
-                let expr = self.parse_expr(0)?;
+                let expr = self.parse_expr(BindingPower::zero())?;
                 self.expect_token(TokenType::RParen)?;
                 expr
             }
+
+            // Prefix operators
+            token_type!(Minus) => prefix_op!(5, "negate"),
+            token_type!(Not) => prefix_op!(5, "not"),
+
             _ => return Err(Error::parse_error("Expected name or lit int")),
         };
-
-        // Handles infix operators
-        // Specify the precidence and the literal string used to represent the operator in the AST
-        macro_rules! infix_op {
-            ($prec:expr, $func:literal) => {{
-                let (left_bp, right_bp) = $prec;
-                if left_bp < min_bp {
-                    break;
-                }
-                self.tokens.next();
-                let rhs = self.parse_expr(right_bp)?;
-                lhs = AST::function($func, vec![lhs, rhs]);
-            }};
-        }
 
         loop {
             match self.peek() {
                 // Infix operators
-                token_type!(Plus) => infix_op!(assoc_left(3), "+"),
-                token_type!(Minus) => infix_op!(assoc_left(3), "-"),
-                token_type!(Star) => infix_op!(assoc_left(4), "*"),
+                token_type!(Plus) => infix_op!(3, Left, "+"),
+                token_type!(Minus) => infix_op!(3, Left, "-"),
+                token_type!(Star) => infix_op!(4, Left, "*"),
 
                 // Postfix operators
-                token_type!(Dot) => {
-                    let (left_bp, _) = postfix(10);
-                    if left_bp < min_bp {
-                        break;
-                    }
-                    self.tokens.next();
+                token_type!(Dot) => postfix_op!(10, {
                     let field = self.expect_token(TokenType::Name)?.text.to_string();
-                    lhs = AST::FieldAccess(Box::new(lhs), field);
-                }
+                    AST::FieldAccess(Box::new(lhs), field)
+                }),
+                token_type!(LParen) => postfix_op!(10, {
+                    let args = separated_by!(Comma, self.parse_expr(BindingPower::zero())?, RParen);
+                    AST::Function(Box::new(lhs), args)
+                }),
 
-                token_type!(LParen) => {
-                    let (left_bp, _) = postfix(10);
-                    if left_bp < min_bp {
-                        break;
-                    }
-                    self.tokens.next();
-                    let args = separated_by!(Comma, self.parse_expr(0)?, RParen);
-                    lhs = AST::Function(Box::new(lhs), args)
-                }
                 _ => break,
             };
         }
@@ -376,20 +402,50 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn assoc_left(bp: u8) -> (u8, u8) {
-    (bp * 2 - 1, bp * 2)
-}
+mod precedence {
+    use std::cmp::Ordering;
 
-fn assoc_right(bp: u8) -> (u8, u8) {
-    (bp * 2, bp * 2 - 1)
-}
+    use crate::language::errors::Error;
 
-fn prefix(bp: u8) -> ((), u8) {
-    ((), bp * 2 - 1)
-}
+    #[derive(Debug, Clone, Copy)]
+    pub enum Assoc {
+        Left,
+        Right,
+        None,
+    }
 
-fn postfix(bp: u8) -> (u8, ()) {
-    (bp * 2 - 1, ())
+    #[derive(Debug, Clone, Copy)]
+    pub struct BindingPower(u8, Assoc);
+
+    impl BindingPower {
+        pub fn zero() -> Self {
+            BindingPower(0, Assoc::None)
+        }
+
+        pub fn prefix(bp: u8) -> Self {
+            BindingPower(bp, Assoc::None)
+        }
+
+        pub fn postfix(bp: u8) -> Self {
+            BindingPower(bp, Assoc::None)
+        }
+
+        pub fn infix(bp: u8, assoc: Assoc) -> Self {
+            BindingPower(bp, assoc)
+        }
+    }
+
+    pub fn should_break(new_bp: &BindingPower, min_bp: &BindingPower) -> Result<bool, Error> {
+        match Ord::cmp(&new_bp.0, &min_bp.0) {
+                Ordering::Less => Ok(true),
+                Ordering::Greater => Ok(false),
+                Ordering::Equal => match (new_bp.1, min_bp.1) {
+                    (Assoc::Left, Assoc::Left) => Ok(true),
+                    (Assoc::Right, Assoc::Right) => Ok(false),
+                    _ => Err(Error::parse_error("operator precedence error"))
+                },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -425,9 +481,17 @@ mod tests {
 
     test_parse_success!(test_lambda, "fn () -> 1", "(lambda () 1)");
     test_parse_success!(test_lambda2, "fn (x) -> x", "(lambda (x) x)");
-    test_parse_success!(test_lambda3, "fn (x, y) -> x + y", "(lambda (x, y) (+ x y))");
+    test_parse_success!(
+        test_lambda3,
+        "fn (x, y) -> x + y",
+        "(lambda (x, y) (+ x y))"
+    );
 
     test_parse_success!(test_let, "let x = 5 in x", "(let ((x 5)) x)");
     test_parse_success!(test_let2, "let x = 5; y = 3 in 1", "(let ((x 5) (y 3)) 1)");
-    test_parse_success!(test_let_lambda, "let f = fn (x) -> x in f(5)", "(let ((f (lambda (x) x))) (f 5))");
+    test_parse_success!(
+        test_let_lambda,
+        "let f = fn (x) -> x in f(5)",
+        "(let ((f (lambda (x) x))) (f 5))"
+    );
 }
