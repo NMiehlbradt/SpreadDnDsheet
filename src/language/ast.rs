@@ -7,6 +7,7 @@ pub enum Value<T> {
     Unit,
     Integer(i64),
     String(String),
+    Boolean(bool),
 
     Record(BTreeMap<String, T>),
     List(Vec<T>),
@@ -42,6 +43,7 @@ impl From<Value<EvaluatedValue>> for Value<AST> {
             Value::Unit => Value::Unit,
             Value::Integer(i) => Value::Integer(i),
             Value::String(s) => Value::String(s),
+            Value::Boolean(b) => Value::Boolean(b),
             Value::Record(fields) => {
                 Value::Record(fields.into_iter().map(|(k, v)| (k, v.into())).collect())
             }

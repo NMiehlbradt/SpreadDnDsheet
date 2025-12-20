@@ -12,8 +12,11 @@ pub enum TokenType {
     Whitespace,
     Error,
 
+    // Literals
     IntLit,
     StringLit,
+    True,
+    False,
     Name,
 
     LParen,
@@ -23,6 +26,7 @@ pub enum TokenType {
     LBrace,
     RBrace,
 
+    // Punctuation
     Comma,
     Dot,
     Colon,
@@ -30,9 +34,27 @@ pub enum TokenType {
     Arrow,
     Eq,
 
+    // Number Operators
     Plus,
     Minus,
     Star,
+
+    // Boolean Operators
+    And,
+    Or,
+    Not,
+
+    // Comparison Operators
+    EqEq,
+    NotEq,
+    Gt,
+    GtEq,
+    Lt,
+    LtEq,
+
+    // Misc Operators
+    PlusPlus, // List concatenation
+    SlashSlash, // Record merge
 
     // Keywords
     Fn,
@@ -61,6 +83,20 @@ lexer! {
     r#"{"# => TokenType::LBrace,
     r#"}"# => TokenType::RBrace,
 
+    r#"and"# => TokenType::And,
+    r#"or"# => TokenType::Or,
+    r#"not"# => TokenType::Not,
+    r#"!"# => TokenType::Not,
+    r#"=="# => TokenType::EqEq,
+    r#"!="# => TokenType::NotEq,
+    r#">"# => TokenType::Gt,
+    r#">="# => TokenType::GtEq,
+    r#"<"# => TokenType::Lt,
+    r#"<="# => TokenType::LtEq,
+
+    r#"\+\+"# => TokenType::PlusPlus,
+    r#"//"# => TokenType::SlashSlash,
+
     r#","# => TokenType::Comma,
     r#"\."# => TokenType::Dot,
     r#":"# => TokenType::Colon,
@@ -78,6 +114,8 @@ lexer! {
     r#"fn"# => TokenType::Fn,
     r#"let"# => TokenType::Let,
     r#"in"# => TokenType::In,
+    r#"True"# => TokenType::True,
+    r#"False"# => TokenType::False,
 
     r#"[a-zA-Z_][a-zA-Z0-9_]*"# => TokenType::Name,
 
@@ -248,6 +286,8 @@ impl<'a> Parser<'a> {
                 }, RBrace);
                 AST::Literal(Value::Record(elements.into_iter().collect()))
             }
+            token_type!(True) => AST::Literal(Value::Boolean(true)),
+            token_type!(False) => AST::Literal(Value::Boolean(false)),
 
             token_type!(Fn) => {
                 self.expect_token(TokenType::LParen)?;
@@ -302,7 +342,7 @@ impl<'a> Parser<'a> {
         }
 
         loop {
-            match self.peek().copied() {
+            match self.peek() {
                 // Infix operators
                 token_type!(Plus) => infix_op!(assoc_left(3), "+"),
                 token_type!(Minus) => infix_op!(assoc_left(3), "-"),

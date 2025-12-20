@@ -218,6 +218,7 @@ impl InterpreterCtx<'_> {
             Value::Unit => Ok(EvaluatedValue(Value::Unit)),
             Value::Integer(i) => Ok(EvaluatedValue(Value::Integer(*i))),
             Value::String(s) => Ok(EvaluatedValue(Value::String(s.clone()))),
+            Value::Boolean(b) => Ok(EvaluatedValue(Value::Boolean(*b))),
             Value::Record(m) => Ok(EvaluatedValue(Value::Record(
                 m.iter()
                     .map(|(k, v)| self.evaluate(v).map(|ev| (k.clone(), ev)))

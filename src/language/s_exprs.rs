@@ -17,6 +17,7 @@ impl<T: ToSExpr> ToSExpr for Value<T> {
             Value::Unit => "()".to_string(),
             Value::Integer(i) => i.to_string(),
             Value::String(s) => format!("\"{s}\""),
+            Value::Boolean(b) => b.to_string(),
             Value::Record(fields) => format!(
                 "{{{}}}",
                 fields
