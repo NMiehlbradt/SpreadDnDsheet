@@ -193,6 +193,10 @@ impl InterpreterCtx<'_> {
                                     } else {
                                         Ok(l[*i as usize].clone().into())
                                     }
+                                },
+                                [Value::Record(r), Value::String(s)] => {
+                                    let value = r.get(s).cloned().ok_or(Error::with_message("Field does not exist"))?;
+                                    Ok(value.into())
                                 }
                             ),
 
