@@ -7,7 +7,6 @@ edition = "2024"
 plex = "0.3.1"
 iced = "0.13.1"
 
-
 [[bin]]
 name = "gui"
 path = "src/bin/gui.rs"
