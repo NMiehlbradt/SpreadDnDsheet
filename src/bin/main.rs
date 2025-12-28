@@ -1,26 +1,88 @@
-use dnd_spreadsheet::reactive;
-use dnd_spreadsheet::language;
+use dnd_spreadsheet::language::ast::{pretty_print_result, AST};
+use dnd_spreadsheet::reactive::sheet::{CellId, Sheet};
+use iced::alignment::Vertical;
+use iced::widget::{button, column, container, scrollable, text, text_editor};
+use iced::Length::Fill;
+use iced::Element;
 
-fn main() {
-    println!("Hello, world!");
+pub fn main() -> iced::Result {
+    iced::run("Simple sheet viewer", State::update, State::view)
+}
 
-    let mut sheet: reactive::sheet::Sheet<language::ast::AST> = reactive::sheet::Sheet::new();
+struct State {
+    sheet: Sheet<AST>,
+    cells: Vec<CellId>,
+    editor_contents: text_editor::Content,
+    selected_cell: Option<CellId>,
+}
 
-    let cell1 = sheet.add_cell("A1".to_string(), "5").unwrap();
-    let cell2 = sheet.add_cell("A2".to_string(), "-A1 - -3").unwrap();
-    let cell3 = sheet.add_cell("A3".to_string(), "{x: A1, y: A2}").unwrap();
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            sheet: Sheet::new(),
+            cells: vec![],
+            editor_contents: text_editor::Content::new(),
+            selected_cell: None,
+        }
+    }
+}
 
-    println!("A1: {:?}", sheet.get_cell_value(&cell1).unwrap());
-    println!("A2: {:?}", sheet.get_cell_value(&cell2).unwrap());
-    println!("A3: {:?}", sheet.get_cell_value(&cell3).unwrap());
+impl State {
+    fn update(&mut self, message: Message) {
+        match message {
+            Message::NewCell => {
+                let cell_name = format!("A{}", self.cells.len() + 1);
+                self.cells
+                    .push(self.sheet.add_cell(cell_name, "0").unwrap());
+            }
+            Message::Edit(action) => {
+                self.editor_contents.perform(action);
+            }
+            Message::SelectCell(id) => {
+                let text = self.sheet.get_cell_text(&id).unwrap();
+                self.editor_contents = text_editor::Content::with_text(text);
+                self.selected_cell = Some(id);
+            }
+            Message::UpdateCell => {
+                if let Some(id) = &self.selected_cell {
+                    self.sheet.update_cell(id, self.editor_contents.text());
+                }
+            }
+        }
+    }
 
-    sheet.update_cell(&cell1, "-2");
+    fn view(&self) -> Element<'_, Message> {
+        container(column![
+            button("Add cell").on_press(Message::NewCell).width(Fill),
+            scrollable(self.draw_cells()).height(Fill).width(Fill),
+            container(column![
+                text_editor(&self.editor_contents).on_action(Message::Edit),
+                button("Update").on_press(Message::UpdateCell).width(Fill),
+            ])
+            .align_y(Vertical::Bottom),
+        ])
+        .into()
+    }
 
-    println!("A1: {:?}", sheet.get_cell_value(&cell1).unwrap());
-    println!("A2: {:?}", sheet.get_cell_value(&cell2).unwrap());
-    println!("A3: {:?}", sheet.get_cell_value(&cell3).unwrap());
+    fn draw_cells(&self) -> impl Into<Element<'_, Message>> {
+        column(self.cells.iter().map(|id| {
+            let cell_name = id.0.clone();
+            let cell_value = self.sheet.get_cell_value(id).unwrap();
+            let button =button(column![text(cell_name), text(format!("{}", pretty_print_result(cell_value))),])
+                .on_press(Message::SelectCell(id.clone()));
+            if self.selected_cell.as_ref().map_or(false, |selected| selected == id) {
+                button.style(button::success)
+            } else {
+                button
+            }.into()
+        }))
+    }
+}
 
-    println!("A1: {}", sheet.get_ast_s_expr(&cell1));
-    println!("A2: {}", sheet.get_ast_s_expr(&cell2));
-    println!("A3: {}", sheet.get_ast_s_expr(&cell3));
+#[derive(Debug, Clone)]
+enum Message {
+    NewCell,
+    Edit(text_editor::Action),
+    SelectCell(CellId),
+    UpdateCell,
 }
