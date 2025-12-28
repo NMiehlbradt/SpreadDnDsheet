@@ -1,3 +1,5 @@
+use crate::language::bultins::stringify_builtin;
+
 use super::ast::*;
 
 pub trait ToSExpr {
@@ -34,7 +36,7 @@ impl<T: ToSExpr> ToSExpr for Value<T> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Value::BuiltinFunction(name) => format!("(builtin {name})"),
+            Value::BuiltinFunction(function) => format!("(builtin {})", stringify_builtin(*function)),
             Value::Lambda(params, body) => {
                 format!("(lambda ({}) {})", params.join(", "), body.to_s_expr())
             }

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::language::errors::Error;
+use crate::language::{bultins::BuiltinFunction, errors::Error};
 
 #[derive(Debug, Clone)]
 pub enum Value<T> {
@@ -12,7 +12,7 @@ pub enum Value<T> {
     Record(BTreeMap<String, T>),
     List(Vec<T>),
 
-    BuiltinFunction(String),
+    BuiltinFunction(BuiltinFunction),
     Lambda(Vec<String>, Box<AST>),
 }
 

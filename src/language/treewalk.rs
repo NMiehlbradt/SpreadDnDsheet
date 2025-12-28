@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use crate::{
     language::{
         ast::{AST, Binding, EvaluatedValue, Value},
+        bultins::{BuiltinFunction, lookup_builtin},
         errors::Error,
         parser::parse,
     },
@@ -100,15 +101,16 @@ impl InterpreterCtx<'_> {
             AST::Literal(value) => Ok(self.evaluate_value(value)?),
 
             AST::Name(name) => {
-                // TODO: Tidy this up and don't allow cells to shadow builtin definitions
                 let cell_id = CellId(name.clone());
                 if let Some(value) = self.local_vars.lookup(name) {
                     Ok(value.clone())
+                } else if let Some(builtin) = lookup_builtin(name) {
+                    Ok(Value::BuiltinFunction(builtin).into())
                 } else if let Some(value) = self.ctx.get_cell_value(&cell_id) {
                     self.reads.insert(cell_id.clone());
                     value.clone().map_err(|_| Error::propogated_error(&cell_id))
                 } else {
-                    Ok(Value::BuiltinFunction(name.clone()).into())
+                    Err(Error::with_message("Unknown name"))
                 }
             }
             AST::FieldAccess(record, field) => {
@@ -137,77 +139,76 @@ impl InterpreterCtx<'_> {
             AST::Function(func_name, args) => {
                 let function = self.evaluate(func_name)?;
 
-                let evaluated_args = args
-                    .iter()
-                    .map(|ast| self.evaluate(ast))
-                    .collect::<Result<Vec<EvaluatedValue>, Error>>();
-
-                let func_name = match function {
-                    EvaluatedValue(Value::BuiltinFunction(name)) => name,
-                    EvaluatedValue(Value::Lambda(args, body)) => {
-                        let mut ctx = self.empty_context();
-                        let evaluated_args = evaluated_args?;
-                        for (name, arg) in args.iter().zip(evaluated_args.iter()) {
-                            ctx.add_local_var(name.clone(), arg.clone());
-                        }
-                        if args.len() != evaluated_args.len() {
+                match function {
+                    EvaluatedValue(Value::Lambda(arg_names, body)) => {
+                        let evaluated_args = args
+                            .iter()
+                            .map(|ast| self.evaluate(ast))
+                            .collect::<Result<Vec<EvaluatedValue>, Error>>()?;
+                        if evaluated_args.len() != arg_names.len() {
                             return Err(Error::with_message("Incorrect number of arguments"));
                         }
-                        return ctx.evaluate(&body);
+                        let mut ctx = self.empty_context();
+                        for (name, arg) in arg_names.iter().zip(evaluated_args.iter()) {
+                            ctx.add_local_var(name.clone(), arg.clone());
+                        }
+                        ctx.evaluate(&body)
                     }
-                    _ => return Err(Error::with_message("Uncallable type")),
-                };
+                    EvaluatedValue(Value::BuiltinFunction(builtin)) => {
+                        macro_rules! eval_function {
+                            ( $([$( $pat:pat ),*] => $body:expr),+ $(,)?) => {{
+                                let evaluated_args = args
+                                    .iter()
+                                    .map(|ast| self.evaluate(ast))
+                                    .collect::<Result<Vec<EvaluatedValue>, Error>>()?;
 
-                macro_rules! eval_function {
-                    ( $([$( $pat:pat ),*] => $body:expr),+ $(,)?) => {
-                        match evaluated_args?.as_slice() {
-                            $([ $( EvaluatedValue($pat) ),* ] => $body,)+
-                            _ => Err(Error::with_message("Invalid arguments")),
+                                match evaluated_args.as_slice() {
+                                    $([ $( EvaluatedValue($pat) ),* ] => $body,)+
+                                    _ => Err(Error::with_message("Invalid arguments")),
+                                }
+                            }};
                         }
-                    };
-                }
 
-                match func_name.as_str() {
-                    // Math Operations
-                    "+" => eval_function!(
-                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a + b).into()),
-                    ),
-                    "-" => eval_function!(
-                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a - b).into()),
-                    ),
-                    "*" => eval_function!(
-                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a * b).into()),
-                    ),
-                    "negate" => eval_function!(
-                        [Value::Integer(a)] => Ok(Value::Integer(-a).into()),
-                    ),
-                    // Push value operations
-                    "push" => eval_function!(
-                        [Value::String(target), to_push] => {
-                            let results = self.pushes.entry(CellId(target.clone())).or_insert_with(Vec::new);
-                            results.push(to_push.clone().into());
-                            Ok(Value::Unit.into())
-                        },
-                    ),
-                    "read" => eval_function!([] => {
-                        Ok(Value::List(self.pushed_values.clone()).into())
-                    }),
-                    // Misc
-                    "index" => eval_function!(
-                        [Value::List(l), Value::Integer(i)] => {
-                            let len = l.len() as i64;
-                            if *i < 0 || *i >= len {
-                                Err(Error::with_message("Index out of range"))
-                            } else {
-                                Ok(l[*i as usize].clone().into())
-                            }
+                        use BuiltinFunction::*;
+
+                        match builtin {
+                            Add => eval_function!(
+                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a + b).into()),
+                            ),
+                            Sub => eval_function!(
+                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a - b).into()),
+                            ),
+                            Mul => eval_function!(
+                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a * b).into()),
+                            ),
+                            Negate => eval_function!(
+                                [Value::Integer(a)] => Ok(Value::Integer(-a).into()),
+                            ),
+
+                            Index => eval_function!(
+                                [Value::List(l), Value::Integer(i)] => {
+                                    let len = l.len() as i64;
+                                    if *i < 0 || *i >= len {
+                                        Err(Error::with_message("Index out of range"))
+                                    } else {
+                                        Ok(l[*i as usize].clone().into())
+                                    }
+                                }
+                            ),
+
+                            Read => eval_function!([] => {
+                                Ok(Value::List(self.pushed_values.clone()).into())
+                            }),
+                            Push => eval_function!(
+                                [Value::String(target), to_push] => {
+                                    let results = self.pushes.entry(CellId(target.clone())).or_insert_with(Vec::new);
+                                    results.push(to_push.clone().into());
+                                    Ok(Value::Unit.into())
+                                },
+                            ),
                         }
-                    ),
-                    // Error case
-                    _ => Err(Error::with_message(format!(
-                        "Unknown function \"{}\"",
-                        func_name
-                    ))),
+                    }
+                    _ => Err(Error::with_message("Uncallable type")),
                 }
             }
         }
@@ -278,7 +279,7 @@ impl InterpreterCtx<'_> {
                 } else {
                     ast.clone()
                 }
-            },
+            }
             AST::Function(function, args) => AST::Function(
                 Box::new(self.capture_values(local_scope, function)),
                 args.iter()
