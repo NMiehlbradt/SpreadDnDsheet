@@ -294,14 +294,14 @@ impl<'a> Parser<'a> {
         // Handles infix operators
         // Specify the precidence and the literal string used to represent the operator in the AST
         macro_rules! infix_op {
-            ($prec:expr, $assoc:ident, $func:literal) => {{
+            ($prec:expr, $assoc:ident, $func:ident) => {{
                 let prec = BindingPower::infix($prec, Assoc::$assoc);
                 if should_break(&prec, &min_bp)? {
                     break;
                 }
                 self.tokens.next();
                 let rhs = self.parse_expr(prec)?;
-                lhs = AST::function($func, vec![lhs, rhs]);
+                lhs = AST::function(BuiltinFunction::$func, vec![lhs, rhs]);
             }};
 
             ($prec:expr, $assoc:ident, $func:expr) => {{
@@ -316,9 +316,9 @@ impl<'a> Parser<'a> {
         }
 
         macro_rules! prefix_op {
-            ($prec:expr, $func:literal) => {{
+            ($prec:expr, $func:ident) => {{
                 let rhs = self.parse_expr(BindingPower::prefix($prec))?;
-                AST::function($func, vec![rhs])
+                AST::function(BuiltinFunction::$func, vec![rhs])
             }};
         }
 
@@ -408,8 +408,8 @@ impl<'a> Parser<'a> {
             }
 
             // Prefix operators
-            token_type!(Minus) => prefix_op!(9, "negate"),
-            token_type!(Not) => prefix_op!(9, "not"),
+            token_type!(Minus) => prefix_op!(9, Negate),
+            token_type!(Not) => prefix_op!(9, Not),
 
             // If-Then-Else
             token_type!(If) => {
@@ -437,22 +437,22 @@ impl<'a> Parser<'a> {
                 }),
                 
                 // Infix operators
-                token_type!(Star) => infix_op!(7, Left, "*"),
-                token_type!(Plus) => infix_op!(6, Left, "+"),
-                token_type!(Minus) => infix_op!(6, Left, "-"),
+                token_type!(Star) => infix_op!(7, Left, Mul),
+                token_type!(Plus) => infix_op!(6, Left, Add),
+                token_type!(Minus) => infix_op!(6, Left, Sub),
 
-                token_type!(Lt) => infix_op!(5, Left, "<"),
-                token_type!(LtEq) => infix_op!(5, Left, "<="),
-                token_type!(Gt) => infix_op!(5, Left, ">"),
-                token_type!(GtEq) => infix_op!(5, Left, ">="),
+                token_type!(Lt) => infix_op!(5, Left, LessThan),
+                token_type!(LtEq) => infix_op!(5, Left, LessThanEqual),
+                token_type!(Gt) => infix_op!(5, Left, GreaterThan),
+                token_type!(GtEq) => infix_op!(5, Left, GreaterThanEqual),
                 
-                token_type!(EqEq) => infix_op!(4, Left, "=="),
+                token_type!(EqEq) => infix_op!(4, Left, Equals),
                 token_type!(NotEq) => infix_op!(4, Left, |rhs| {
                     AST::function(BuiltinFunction::Not, vec![AST::function(BuiltinFunction::Equals, vec![lhs, rhs])])
                 }),
 
-                token_type!(And) => infix_op!(3, Left, "and"),
-                token_type!(Or) => infix_op!(2, Left, "or"),
+                token_type!(And) => infix_op!(3, Left, And),
+                token_type!(Or) => infix_op!(2, Left, Or),
 
                 _ => break,
             };
@@ -528,24 +528,24 @@ mod tests {
     test_parse_success!(test_string, "\"string\"", "\"string\"");
     test_parse_success!(test_list_lit, "[1, 2, 3]", "[1, 2, 3]");
     test_parse_success!(test_record_lit, "{b: 2, a: 1}", "{a: 1, b: 2}");
-    test_parse_success!(test_plus, "1 + 2", "(+ 1 2)");
-    test_parse_success!(test_minus, "1 - 2", "(- 1 2)");
-    test_parse_success!(test_multiply, "1 * 2", "(* 1 2)");
-    test_parse_success!(test_negate, "-1", "(negate 1)");
-    test_parse_success!(test_negate2, "--1", "(negate (negate 1))");
-    test_parse_success!(test_prec_left, "1 * 2 + 3", "(+ (* 1 2) 3)");
-    test_parse_success!(test_prec_right, "1 + 2 * 3", "(+ 1 (* 2 3))");
+    test_parse_success!(test_plus, "1 + 2", "((builtin +) 1 2)");
+    test_parse_success!(test_minus, "1 - 2", "((builtin -) 1 2)");
+    test_parse_success!(test_multiply, "1 * 2", "((builtin *) 1 2)");
+    test_parse_success!(test_negate, "-1", "((builtin negate) 1)");
+    test_parse_success!(test_negate2, "--1", "((builtin negate) ((builtin negate) 1))");
+    test_parse_success!(test_prec_left, "1 * 2 + 3", "((builtin +) ((builtin *) 1 2) 3)");
+    test_parse_success!(test_prec_right, "1 + 2 * 3", "((builtin +) 1 ((builtin *) 2 3))");
     test_parse_success!(test_dot, "a.b", "(.b a)");
     test_parse_success!(test_dot2, "a.b.c", "(.c (.b a))");
-    test_parse_success!(test_dot_prec_left, "a.b + c", "(+ (.b a) c)");
-    test_parse_success!(test_dot_prec_right, "a + b.c", "(+ a (.c b))");
+    test_parse_success!(test_dot_prec_left, "a.b + c", "((builtin +) (.b a) c)");
+    test_parse_success!(test_dot_prec_right, "a + b.c", "((builtin +) a (.c b))");
 
     test_parse_success!(test_lambda, "fn () -> 1", "(lambda () 1)");
     test_parse_success!(test_lambda2, "fn (x) -> x", "(lambda (x) x)");
     test_parse_success!(
         test_lambda3,
         "fn (x, y) -> x + y",
-        "(lambda (x, y) (+ x y))"
+        "(lambda (x, y) ((builtin +) x y))"
     );
 
     test_parse_success!(test_let, "let x = 5 in x", "(let ((x 5)) x)");
