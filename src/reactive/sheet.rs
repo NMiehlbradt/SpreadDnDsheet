@@ -104,14 +104,10 @@ where
         to_evaluate.push(id.clone());
         let mut visited = HashSet::new();
 
-        println!("Cell {} updated - starting evaluation", id.0);
-
         while let Some(id) = to_evaluate.pop() {
             if visited.insert(id.clone()) || !self.has_cyclic_dependency(&id) {
-                println!("Recomputing {}", id.0);
                 let pushes = self.recompute_cell(&id);
                 // If there are cells that were written to push them to the queue
-                println!("{:?}", pushes);
                 if let Some(pushes) = pushes {
                     for dependant in pushes {
                         if self.cells.contains_key(&dependant) {
@@ -127,10 +123,6 @@ where
                 self.cells.get_mut(&id).unwrap().value = Err(IR::make_error("Circular dependency"));
             }
         }
-
-        println!("Finished evaluation");
-        println!("writer_to_targets: {:?}", self.writer_to_targets);
-        println!("targets_from_writer: {:?}", self.targets_from_writer);
 
         visited
     }
@@ -150,8 +142,6 @@ where
                 .get(id)
                 .map(|map| map.values().flat_map(|v| v.clone()).collect())
                 .unwrap_or_default();
-            println!("{:?} {:?}", id, pushed_values);
-            println!("{:?}", self.targets_from_writer.get(id));
             
             let new_value = ast.evaluate(&self, &pushed_values, &mut new_reads, &mut new_pushes);
             let cell = self.cells.get_mut(id).unwrap();
