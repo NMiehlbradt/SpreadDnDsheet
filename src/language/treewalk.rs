@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{collections::{BTreeMap, HashMap, HashSet}, fmt::format};
 
 use crate::{
     language::{
@@ -110,7 +110,7 @@ impl InterpreterCtx<'_> {
                     self.reads.insert(cell_id.clone());
                     value.clone().map_err(|_| Error::propogated_error(&cell_id))
                 } else {
-                    Err(Error::with_message("Unknown name"))
+                    Err(Error::with_message(format!("Unknown name \"{}\"", name)))
                 }
             }
             AST::FieldAccess(record, field) => {
@@ -155,8 +155,9 @@ impl InterpreterCtx<'_> {
                         ctx.evaluate(&body)
                     }
                     EvaluatedValue(Value::BuiltinFunction(builtin)) => {
+                        // Strict evaluation, match on the number and types of arguments
                         macro_rules! eval_function {
-                            ( $([$( $pat:pat ),*] => $body:expr),+ $(,)?) => {{
+                            ($([$( $pat:pat ),*] => $body:expr),+ $(,)?) => {{
                                 let evaluated_args = args
                                     .iter()
                                     .map(|ast| self.evaluate(ast))
@@ -167,6 +168,16 @@ impl InterpreterCtx<'_> {
                                     _ => Err(Error::with_message("Invalid arguments")),
                                 }
                             }};
+                        }
+
+                        // Lazy evaluation, match on the number of arguments but leave them as AST nodes
+                        macro_rules! lazy_eval {
+                            ($([$( $name:ident ),*] => $body:expr),+ $(,)?) => {
+                                match args.as_slice() {
+                                    $([ $( $name ),* ] => $body,)+
+                                    _ => Err(Error::with_message("Incorrect number of arguments")),
+                                }
+                            };
                         }
 
                         use BuiltinFunction::*;
@@ -184,7 +195,6 @@ impl InterpreterCtx<'_> {
                             Negate => eval_function!(
                                 [Value::Integer(a)] => Ok(Value::Integer(-a).into()),
                             ),
-
                             Index => eval_function!(
                                 [Value::List(l), Value::Integer(i)] => {
                                     let len = l.len() as i64;
@@ -199,7 +209,6 @@ impl InterpreterCtx<'_> {
                                     Ok(value.into())
                                 }
                             ),
-
                             Read => eval_function!([] => {
                                 Ok(Value::List(self.pushed_values.clone()).into())
                             }),
@@ -210,6 +219,46 @@ impl InterpreterCtx<'_> {
                                     Ok(Value::Unit.into())
                                 },
                             ),
+                            LessThan => eval_function!(
+                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a < b).into()),
+                            ),
+                            GreaterThan => eval_function!(
+                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a > b).into()),
+                            ),
+                            LessThanEqual => eval_function!(
+                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a <= b).into()),),
+                            GreaterThanEqual => eval_function!(
+                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a >= b).into()),
+                            ),
+                            Equals => eval_function!(
+                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a == b).into()),
+                                [Value::String(a), Value::String(b)] => Ok(Value::Boolean(a == b).into()),
+                                [Value::Boolean(a), Value::Boolean(b)] => Ok(Value::Boolean(a == b).into()),
+                            ),
+
+                            Not => eval_function!(
+                                [Value::Boolean(b)] => Ok(Value::Boolean(!b).into()),),
+                            And => lazy_eval!([lhs, rhs] => {
+                                if self.evaluate(lhs)?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
+                                    self.evaluate(rhs)
+                                } else {
+                                    Ok(Value::Boolean(false).into())
+                                }
+                            }),
+                            Or => lazy_eval!([lhs, rhs] => {
+                                if self.evaluate(lhs)?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
+                                    Ok(Value::Boolean(true).into())
+                                } else {
+                                    self.evaluate(rhs)
+                                }
+                            }),
+                            If => lazy_eval!([cond, then, else_] => {
+                                if self.evaluate(cond)?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
+                                    self.evaluate(then)
+                                } else {
+                                    self.evaluate(else_)
+                                }
+                            })
                         }
                     }
                     _ => Err(Error::with_message("Uncallable type")),

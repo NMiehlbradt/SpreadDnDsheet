@@ -31,4 +31,16 @@ def_builtins!{
     "read" = Read,
 
     "index" = Index,
+
+    "<" = LessThan,
+    ">" = GreaterThan,
+    "<=" = LessThanEqual,
+    ">=" = GreaterThanEqual,
+    "==" = Equals,
+
+    "and" = And,
+    "or" = Or,
+    "not" = Not,
+
+    "if" = If,
 }

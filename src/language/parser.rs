@@ -7,6 +7,7 @@ use plex::lexer;
 use crate::language::ast::AST;
 use crate::language::ast::Binding;
 use crate::language::ast::Value;
+use crate::language::bultins::BuiltinFunction;
 use crate::language::errors::Error;
 use crate::language::parser::precedence::*;
 
@@ -63,6 +64,9 @@ pub enum TokenType {
     Fn,
     Let,
     In,
+    If,
+    Then,
+    Else,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -117,8 +121,12 @@ lexer! {
     r#"fn"# => TokenType::Fn,
     r#"let"# => TokenType::Let,
     r#"in"# => TokenType::In,
-    r#"True"# => TokenType::True,
-    r#"False"# => TokenType::False,
+    r#"true"# => TokenType::True,
+    r#"false"# => TokenType::False,
+
+    r#"if"# => TokenType::If,
+    r#"then"# => TokenType::Then,
+    r#"else"# => TokenType::Else,
 
     r#"[a-zA-Z_][a-zA-Z0-9_]*"# => TokenType::Name,
 
@@ -295,6 +303,16 @@ impl<'a> Parser<'a> {
                 let rhs = self.parse_expr(prec)?;
                 lhs = AST::function($func, vec![lhs, rhs]);
             }};
+
+            ($prec:expr, $assoc:ident, $func:expr) => {{
+                let prec = BindingPower::infix($prec, Assoc::$assoc);
+                if should_break(&prec, &min_bp)? {
+                    break;
+                }
+                self.tokens.next();
+                let rhs = self.parse_expr(prec)?;
+                lhs = $func(rhs);
+            }};
         }
 
         macro_rules! prefix_op {
@@ -393,6 +411,16 @@ impl<'a> Parser<'a> {
             token_type!(Minus) => prefix_op!(9, "negate"),
             token_type!(Not) => prefix_op!(9, "not"),
 
+            // If-Then-Else
+            token_type!(If) => {
+                let cond = self.parse_expr(BindingPower::zero())?;
+                self.expect_token(TokenType::Then)?;
+                let then = self.parse_expr(BindingPower::zero())?;
+                self.expect_token(TokenType::Else)?;
+                let else_ = self.parse_expr(BindingPower::prefix(1))?;
+                AST::function(BuiltinFunction::If, vec![cond, then, else_])
+            }
+
             _ => return Err(Error::parse_error("Expected name or lit int")),
         };
 
@@ -419,10 +447,12 @@ impl<'a> Parser<'a> {
                 token_type!(GtEq) => infix_op!(5, Left, ">="),
                 
                 token_type!(EqEq) => infix_op!(4, Left, "=="),
-                token_type!(NotEq) => infix_op!(4, Left, "!="),
+                token_type!(NotEq) => infix_op!(4, Left, |rhs| {
+                    AST::function(BuiltinFunction::Not, vec![AST::function(BuiltinFunction::Equals, vec![lhs, rhs])])
+                }),
 
-                token_type!(And) => infix_op!(2, Left, "and"),
-                token_type!(Or) => infix_op!(1, Left, "or"),
+                token_type!(And) => infix_op!(3, Left, "and"),
+                token_type!(Or) => infix_op!(2, Left, "or"),
 
                 _ => break,
             };

@@ -54,6 +54,17 @@ impl From<Value<EvaluatedValue>> for Value<AST> {
     }
 }
 
+impl TryFrom<EvaluatedValue> for bool {
+    type Error = ();
+
+    fn try_from(value: EvaluatedValue) -> Result<Self, Self::Error> {
+        match value.0 {
+            Value::Boolean(b) => Ok(b),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Binding(pub String, pub AST);
 
@@ -75,7 +86,27 @@ pub fn pretty_print_result(res: &Result<EvaluatedValue, Error>) -> String {
 }
 
 impl AST {
-    pub fn function(name: impl Into<String>, args: Vec<AST>) -> AST {
-        AST::Function(Box::new(AST::Name(name.into())), args)
+    pub fn function(name: impl Into<AST>, args: Vec<AST>) -> AST {
+        AST::Function(Box::new(name.into()), args)
+    }
+}
+
+impl From<Value<AST>> for AST {
+    fn from(value: Value<AST>) -> Self {
+        AST::Literal(value)
+    }
+}
+
+impl<T> From<T> for AST 
+where T: Into<String>
+{
+    fn from(value: T) -> Self {
+        AST::Name(value.into())
+    }
+}
+
+impl From<BuiltinFunction> for AST {
+    fn from(value: BuiltinFunction) -> Self {
+        AST::Literal(Value::BuiltinFunction(value))
     }
 }
