@@ -1,4 +1,3 @@
-use crate::reactive::sheet::CellId;
 
 #[derive(Debug, Clone)]
 pub struct Error {
@@ -12,11 +11,7 @@ impl Error {
         }
     }
 
-    pub fn not_found(cell_id: &CellId) -> Self {
-        Error::with_message(format!("Cell {} not found", cell_id.0))
-    }
-
-    pub fn propogated_error(cell_id: &CellId) -> Self {
-        Error::with_message(format!("Error in read cell {}", cell_id.0))
+    pub fn propogated_error(cell_name: &str) -> Self {
+        Error::with_message(format!("Error in read cell {}", cell_name))
     }
 }

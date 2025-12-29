@@ -66,7 +66,7 @@ impl State {
 
     fn draw_cells(&self) -> impl Into<Element<'_, Message>> {
         column(self.cells.iter().map(|id| {
-            let cell_name = id.0.clone();
+            let cell_name = self.sheet.get_cell_name(id);
             let cell_value = self.sheet.get_cell_value(id).unwrap();
             let button =button(column![text(cell_name), text(format!("{}", pretty_print_result(cell_value))),])
                 .on_press(Message::SelectCell(id.clone()));

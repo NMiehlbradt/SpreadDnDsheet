@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use crate::{
     language::{
@@ -7,10 +7,7 @@ use crate::{
         errors::Error,
         parser::parse,
     },
-    reactive::{
-        language::IntermediateRep,
-        sheet::{CellId, Sheet},
-    },
+    reactive::language::{IntermediateRep, ReactiveContext},
 };
 
 struct Scope<'a, T> {
@@ -46,48 +43,34 @@ impl<'a, T: Clone> Scope<'a, T> {
     }
 }
 
-struct InterpreterCtx<'a> {
-    ctx: &'a Sheet<AST>,
-    pushed_values: &'a Vec<EvaluatedValue>,
-    reads: &'a mut HashSet<CellId>,
-    pushes: &'a mut HashMap<CellId, Vec<EvaluatedValue>>,
-    local_vars: Scope<'a, EvaluatedValue>,
+struct InterpreterCtx<'inner, 'outer> {
+    ctx: &'outer mut ReactiveContext<'inner, AST>,
+    local_vars: Scope<'outer, EvaluatedValue>,
 }
 
-impl InterpreterCtx<'_> {
-    fn new<'a>(
-        ctx: &'a Sheet<AST>,
-        pushed_values: &'a Vec<EvaluatedValue>,
-        reads: &'a mut HashSet<CellId>,
-        pushes: &'a mut HashMap<CellId, Vec<EvaluatedValue>>,
-    ) -> InterpreterCtx<'a> {
+impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
+
+    fn new(
+        ctx: &'outer mut ReactiveContext<'inner, AST>
+    ) -> Self {
         InterpreterCtx {
-            ctx,
-            pushed_values,
-            reads,
-            pushes,
+            ctx: ctx,
             local_vars: Scope::new(),
         }
     }
 
     // Creates a new InterpreterCtx from the current one, but with an empty scope
-    fn empty_context<'a>(&'a mut self) -> InterpreterCtx<'a> {
+    fn empty_context<'a>(&'a mut self) -> InterpreterCtx<'inner, 'a> {
         InterpreterCtx {
             ctx: self.ctx,
-            pushed_values: self.pushed_values,
-            reads: self.reads,
-            pushes: self.pushes,
             local_vars: Scope::new(),
         }
     }
 
     // Creates a new InterpreterCtx from the current one, but creating an inner scope
-    fn push_scope<'a>(&'a mut self) -> InterpreterCtx<'a> {
+    fn push_scope<'a>(&'a mut self) -> InterpreterCtx<'inner, 'a> {
         InterpreterCtx {
             ctx: self.ctx,
-            pushed_values: self.pushed_values,
-            reads: self.reads,
-            pushes: self.pushes,
             local_vars: Scope::new_with_parent(&self.local_vars),
         }
     }
@@ -101,14 +84,12 @@ impl InterpreterCtx<'_> {
             AST::Literal(value) => Ok(self.evaluate_value(value)?),
 
             AST::Name(name) => {
-                let cell_id = CellId(name.clone());
                 if let Some(value) = self.local_vars.lookup(name) {
                     Ok(value.clone())
                 } else if let Some(builtin) = lookup_builtin(name) {
                     Ok(Value::BuiltinFunction(builtin).into())
-                } else if let Some(value) = self.ctx.get_cell_value(&cell_id) {
-                    self.reads.insert(cell_id.clone());
-                    value.clone().map_err(|_| Error::propogated_error(&cell_id))
+                } else if let Some((_, value)) = self.ctx.read_cell_by_name(name) {
+                    value.clone().map_err(|_| Error::propogated_error(&name))
                 } else {
                     Err(Error::with_message(format!("Unknown name \"{}\"", name)))
                 }
@@ -210,12 +191,12 @@ impl InterpreterCtx<'_> {
                                 }
                             ),
                             Read => eval_function!([] => {
-                                Ok(Value::List(self.pushed_values.clone()).into())
+                                Ok(Value::List(self.ctx.get_pushes().clone()).into())
                             }),
                             Push => eval_function!(
                                 [Value::String(target), to_push] => {
-                                    let results = self.pushes.entry(CellId(target.clone())).or_insert_with(Vec::new);
-                                    results.push(to_push.clone().into());
+                                    let to_push = to_push.clone().into();
+                                    self.ctx.add_push_by_name(target, &to_push);
                                     Ok(Value::Unit.into())
                                 },
                             ),
@@ -379,14 +360,11 @@ impl IntermediateRep for AST {
     /// The function returns a Result containing the evaluated value, or an error message if the evaluation failed.
     ///
     /// The function is used internally by the sheet to evaluate the contents of cells.
-    fn evaluate(
+    fn evaluate<'a>(
         &self,
-        ctx: &Sheet<Self>,
-        pushed_values: &Vec<EvaluatedValue>,
-        reads: &mut HashSet<CellId>,
-        pushes: &mut HashMap<CellId, Vec<Self::Value>>,
+        mut ctx: ReactiveContext<'a, Self>
     ) -> Result<Self::Value, Self::Error> {
-        InterpreterCtx::new(ctx, pushed_values, reads, pushes).evaluate(self)
+        InterpreterCtx::new(&mut ctx).evaluate(self)
     }
 
     fn make_error(message: impl Into<String>) -> Self::Error {

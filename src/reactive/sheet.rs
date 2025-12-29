@@ -2,6 +2,7 @@ use crate::language::ast::AST;
 use crate::language::s_exprs::ToSExpr;
 use crate::maps::fastqueue::FastQueue;
 use crate::maps::pairmap::PairMap;
+use crate::reactive::language::ReactiveContext;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Debug;
 
@@ -19,7 +20,13 @@ pub struct Sheet<IR: IntermediateRep> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CellId(pub String);
+pub struct CellId(pub(super) String);
+
+impl<T: IntermediateRep> Sheet<T> {
+    pub fn get_cell_name(&self, id: &CellId) -> String {
+        id.0.clone()
+    }
+}
 
 struct Cell<IR: IntermediateRep> {
     raw_contents: String,
@@ -58,10 +65,16 @@ where
             let mut pushes = HashMap::new();
             let contents = contents.into();
             let (value, ast) = match IR::parse(&contents) {
-                Ok(ast) => (
-                    ast.evaluate(&self, &Vec::new(), &mut reads, &mut pushes),
-                    Some(ast),
-                ),
+                Ok(ast) => {
+                    let ctx = ReactiveContext {
+                        ctx: &self,
+                        pushed_values: &Vec::new(),
+                        reads: &mut reads,
+                        pushes: &mut pushes,
+                    };
+                    
+                    (ast.evaluate(ctx), Some(ast))
+                },
                 Err(err) => (Err(err), None),
             };
 
@@ -143,7 +156,14 @@ where
                 .map(|map| map.values().flat_map(|v| v.clone()).collect())
                 .unwrap_or_default();
             
-            let new_value = ast.evaluate(&self, &pushed_values, &mut new_reads, &mut new_pushes);
+            let ctx = ReactiveContext {
+                ctx: &self,
+                pushed_values: &pushed_values,
+                reads: &mut new_reads,
+                pushes: &mut new_pushes,
+            };
+            
+            let new_value = ast.evaluate(ctx);
             let cell = self.cells.get_mut(id).unwrap();
             cell.value = new_value;
 
