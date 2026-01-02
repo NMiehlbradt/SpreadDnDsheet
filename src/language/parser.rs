@@ -22,6 +22,7 @@ pub enum TokenType {
     True,
     False,
     Name,
+    CellName,
 
     LParen,
     RParen,
@@ -128,6 +129,8 @@ lexer! {
     r#"then"# => TokenType::Then,
     r#"else"# => TokenType::Else,
 
+    // Cell names are regular names prefixed with a $ to specifically indicate cell references
+    r#"$[a-zA-Z_][a-zA-Z0-9_]*"# => TokenType::CellName,
     r#"[a-zA-Z_][a-zA-Z0-9_]*"# => TokenType::Name,
 
     r#"."# => TokenType::Error,
@@ -375,6 +378,10 @@ impl<'a> Parser<'a> {
             token_type!(True) => AST::Literal(Value::Boolean(true)),
             token_type!(False) => AST::Literal(Value::Boolean(false)),
 
+            // Names
+            token_type!(Name, text) => AST::Name(text.to_string()),
+            token_type!(CellName, text) => AST::Name(text.to_string()),
+
             token_type!(Fn) => {
                 self.expect_token(TokenType::LParen)?;
                 let params = separated_by!(
@@ -401,9 +408,6 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_expr(BindingPower::zero())?;
                 AST::Let(bindings, Box::new(expr))
             }
-
-            // Names
-            token_type!(Name, text) => AST::Name(text.to_string()),
 
             // Brackets
             token_type!(LParen) => {

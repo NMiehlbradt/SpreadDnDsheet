@@ -84,7 +84,14 @@ impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
             AST::Literal(value) => Ok(self.evaluate_value(value)?),
 
             AST::Name(name) => {
-                if let Some(value) = self.local_vars.lookup(name) {
+                // Names starting $ force a cell reference using the rest of the name
+                if let Some(c) = name.chars().next() && c == '$' {
+                    if let Some((_, value)) = self.ctx.read_cell_by_name(&name[1..]) {
+                        value.clone().map_err(|_| Error::propogated_error(&name))
+                    } else {
+                        Err(Error::with_message(format!("Unknown cell name \"{}\"", name[1..].to_string())))
+                    }
+                } else if let Some(value) = self.local_vars.lookup(name) {
                     Ok(value.clone())
                 } else if let Some(builtin) = lookup_builtin(name) {
                     Ok(Value::BuiltinFunction(builtin).into())
