@@ -59,7 +59,6 @@ pub enum TokenType {
     LtEq,
 
     // Misc Operators
-    PlusPlus,   // List concatenation
     SlashSlash, // Record merge
 
     // Keywords
@@ -103,7 +102,6 @@ lexer! {
     r#"<"# => TokenType::Lt,
     r#"<="# => TokenType::LtEq,
 
-    r#"\+\+"# => TokenType::PlusPlus,
     r#"//"# => TokenType::SlashSlash,
 
     r#","# => TokenType::Comma,
@@ -450,6 +448,8 @@ impl<'a> Parser<'a> {
                 token_type!(Star) => infix_op!(7, Left, Mul),
                 token_type!(Plus) => infix_op!(6, Left, Add),
                 token_type!(Minus) => infix_op!(6, Left, Sub),
+
+                token_type!(SlashSlash) => infix_op!(6, Left, RecordUpdate),
 
                 token_type!(Lt) => infix_op!(5, Left, LessThan),
                 token_type!(LtEq) => infix_op!(5, Left, LessThanEqual),

@@ -189,6 +189,8 @@ impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
                 match builtin {
                     Add => eval_function!(
                         [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a + b).into()),
+                        [Value::String(a), Value::String(b)] => Ok(Value::String(a.to_owned() + b).into()),
+                        [Value::List(a), Value::List(b)] => Ok(Value::List(a.iter().chain(b.iter()).cloned().collect()).into()),
                     ),
                     Sub => eval_function!(
                         [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a - b).into()),
@@ -316,6 +318,15 @@ impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
                             todo!()
                         }
                     ),
+                    RecordUpdate => eval_function!(
+                        [Value::Record(left), Value::Record(right)] => {
+                            let mut new_record = left.clone();
+                            for (k, v) in right {
+                                new_record.insert(k.clone(), v.clone());
+                            }
+                            Ok(Value::Record(new_record).into())
+                        }
+                    )
                 }
             }
         }

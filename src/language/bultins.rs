@@ -47,4 +47,6 @@ def_builtins!{
     "map" = Map,
     "fold" = Fold,
     "filter" = Filter,
+
+    "//" = RecordUpdate,
 }
