@@ -6,6 +6,7 @@ use plex::lexer;
 
 use crate::language::ast::AST;
 use crate::language::ast::Binding;
+use crate::language::ast::Function;
 use crate::language::ast::Value;
 use crate::language::bultins::BuiltinFunction;
 use crate::language::errors::Error;
@@ -391,7 +392,7 @@ impl<'a> Parser<'a> {
                 );
                 self.expect_token(TokenType::Arrow)?;
                 let body = self.parse_expr(BindingPower::zero())?;
-                AST::Literal(Value::Lambda(params, Box::new(body)))
+                AST::Literal(Value::Function(Function::Lambda(params, Box::new(body))))
             }
 
             token_type!(Let) => {

@@ -43,4 +43,8 @@ def_builtins!{
     "not" = Not,
 
     "if" = If,
+
+    "map" = Map,
+    "fold" = Fold,
+    "filter" = Filter,
 }

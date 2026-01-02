@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::{
     language::{
-        ast::{AST, Binding, EvaluatedValue, Value},
+        ast::{AST, Binding, EvaluatedValue, Function, Value},
         bultins::{BuiltinFunction, lookup_builtin},
         errors::Error,
         parser::parse,
@@ -49,10 +49,7 @@ struct InterpreterCtx<'inner, 'outer> {
 }
 
 impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
-
-    fn new(
-        ctx: &'outer mut ReactiveContext<'inner, AST>
-    ) -> Self {
+    fn new(ctx: &'outer mut ReactiveContext<'inner, AST>) -> Self {
         InterpreterCtx {
             ctx: ctx,
             local_vars: Scope::new(),
@@ -85,16 +82,21 @@ impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
 
             AST::Name(name) => {
                 // Names starting $ force a cell reference using the rest of the name
-                if let Some(c) = name.chars().next() && c == '$' {
+                if let Some(c) = name.chars().next()
+                    && c == '$'
+                {
                     if let Some((_, value)) = self.ctx.read_cell_by_name(&name[1..]) {
                         value.clone().map_err(|_| Error::propogated_error(&name))
                     } else {
-                        Err(Error::with_message(format!("Unknown cell name \"{}\"", name[1..].to_string())))
+                        Err(Error::with_message(format!(
+                            "Unknown cell name \"{}\"",
+                            name[1..].to_string()
+                        )))
                     }
                 } else if let Some(value) = self.local_vars.lookup(name) {
                     Ok(value.clone())
                 } else if let Some(builtin) = lookup_builtin(name) {
-                    Ok(Value::BuiltinFunction(builtin).into())
+                    Ok(Value::Function(Function::Builtin(builtin)).into())
                 } else if let Some((_, value)) = self.ctx.read_cell_by_name(name) {
                     value.clone().map_err(|_| Error::propogated_error(&name))
                 } else {
@@ -126,25 +128,39 @@ impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
 
             AST::Function(func_name, args) => {
                 let function = self.evaluate(func_name)?;
-
                 match function {
-                    EvaluatedValue(Value::Lambda(arg_names, body)) => {
-                        let evaluated_args = args
-                            .iter()
-                            .map(|ast| self.evaluate(ast))
-                            .collect::<Result<Vec<EvaluatedValue>, Error>>()?;
-                        if evaluated_args.len() != arg_names.len() {
-                            return Err(Error::with_message("Incorrect number of arguments"));
-                        }
-                        let mut ctx = self.empty_context();
-                        for (name, arg) in arg_names.iter().zip(evaluated_args.iter()) {
-                            ctx.add_local_var(name.clone(), arg.clone());
-                        }
-                        ctx.evaluate(&body)
+                    EvaluatedValue(Value::Function(function)) => {
+                        self.evaluate_function(&function, args)
                     }
-                    EvaluatedValue(Value::BuiltinFunction(builtin)) => {
-                        // Strict evaluation, match on the number and types of arguments
-                        macro_rules! eval_function {
+                    _ => Err(Error::with_message("Uncallable type")),
+                }
+            }
+        }
+    }
+
+    fn evaluate_function(
+        &mut self,
+        function: &Function,
+        args: &[AST],
+    ) -> Result<EvaluatedValue, Error> {
+        match function {
+            Function::Lambda(arg_names, body) => {
+                let evaluated_args =
+                    args.iter()
+                        .map(|ast| self.evaluate(ast))
+                        .collect::<Result<Vec<EvaluatedValue>, Error>>()?;
+                if evaluated_args.len() != arg_names.len() {
+                    return Err(Error::with_message("Incorrect number of arguments"));
+                }
+                let mut ctx = self.empty_context();
+                for (name, arg) in arg_names.iter().zip(evaluated_args.iter()) {
+                    ctx.add_local_var(name.clone(), arg.clone());
+                }
+                ctx.evaluate(&body)
+            }
+            Function::Builtin(builtin) => {
+                // Strict evaluation, match on the number and types of arguments
+                macro_rules! eval_function {
                             ($([$( $pat:pat ),*] => $body:expr),+ $(,)?) => {{
                                 let evaluated_args = args
                                     .iter()
@@ -158,98 +174,148 @@ impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
                             }};
                         }
 
-                        // Lazy evaluation, match on the number of arguments but leave them as AST nodes
-                        macro_rules! lazy_eval {
+                // Lazy evaluation, match on the number of arguments but leave them as AST nodes
+                macro_rules! lazy_eval {
                             ($([$( $name:ident ),*] => $body:expr),+ $(,)?) => {
-                                match args.as_slice() {
+                                match args {
                                     $([ $( $name ),* ] => $body,)+
                                     _ => Err(Error::with_message("Incorrect number of arguments")),
                                 }
                             };
                         }
 
-                        use BuiltinFunction::*;
+                use BuiltinFunction::*;
 
-                        match builtin {
-                            Add => eval_function!(
-                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a + b).into()),
-                            ),
-                            Sub => eval_function!(
-                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a - b).into()),
-                            ),
-                            Mul => eval_function!(
-                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a * b).into()),
-                            ),
-                            Negate => eval_function!(
-                                [Value::Integer(a)] => Ok(Value::Integer(-a).into()),
-                            ),
-                            Index => eval_function!(
-                                [Value::List(l), Value::Integer(i)] => {
-                                    let len = l.len() as i64;
-                                    if *i < 0 || *i >= len {
-                                        Err(Error::with_message("Index out of range"))
-                                    } else {
-                                        Ok(l[*i as usize].clone().into())
-                                    }
-                                },
-                                [Value::Record(r), Value::String(s)] => {
-                                    let value = r.get(s).cloned().ok_or(Error::with_message("Field does not exist"))?;
-                                    Ok(value.into())
-                                }
-                            ),
-                            Read => eval_function!([] => {
-                                Ok(Value::List(self.ctx.get_pushes().clone()).into())
-                            }),
-                            Push => eval_function!(
-                                [Value::String(target), to_push] => {
-                                    let to_push = to_push.clone().into();
-                                    self.ctx.add_push_by_name(target, &to_push);
-                                    Ok(Value::Unit.into())
-                                },
-                            ),
-                            LessThan => eval_function!(
-                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a < b).into()),
-                            ),
-                            GreaterThan => eval_function!(
-                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a > b).into()),
-                            ),
-                            LessThanEqual => eval_function!(
-                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a <= b).into()),),
-                            GreaterThanEqual => eval_function!(
-                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a >= b).into()),
-                            ),
-                            Equals => eval_function!(
-                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a == b).into()),
-                                [Value::String(a), Value::String(b)] => Ok(Value::Boolean(a == b).into()),
-                                [Value::Boolean(a), Value::Boolean(b)] => Ok(Value::Boolean(a == b).into()),
-                            ),
-
-                            Not => eval_function!(
-                                [Value::Boolean(b)] => Ok(Value::Boolean(!b).into()),),
-                            And => lazy_eval!([lhs, rhs] => {
-                                if self.evaluate(lhs)?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
-                                    self.evaluate(rhs)
-                                } else {
-                                    Ok(Value::Boolean(false).into())
-                                }
-                            }),
-                            Or => lazy_eval!([lhs, rhs] => {
-                                if self.evaluate(lhs)?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
-                                    Ok(Value::Boolean(true).into())
-                                } else {
-                                    self.evaluate(rhs)
-                                }
-                            }),
-                            If => lazy_eval!([cond, then, else_] => {
-                                if self.evaluate(cond)?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
-                                    self.evaluate(then)
-                                } else {
-                                    self.evaluate(else_)
-                                }
-                            })
+                match builtin {
+                    Add => eval_function!(
+                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a + b).into()),
+                    ),
+                    Sub => eval_function!(
+                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a - b).into()),
+                    ),
+                    Mul => eval_function!(
+                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Integer(a * b).into()),
+                    ),
+                    Negate => eval_function!(
+                        [Value::Integer(a)] => Ok(Value::Integer(-a).into()),
+                    ),
+                    Index => eval_function!(
+                        [Value::List(l), Value::Integer(i)] => {
+                            let len = l.len() as i64;
+                            if *i < 0 || *i >= len {
+                                Err(Error::with_message("Index out of range"))
+                            } else {
+                                Ok(l[*i as usize].clone().into())
+                            }
+                        },
+                        [Value::Record(r), Value::String(s)] => {
+                            let value = r.get(s).cloned().ok_or(Error::with_message("Field does not exist"))?;
+                            Ok(value.into())
                         }
-                    }
-                    _ => Err(Error::with_message("Uncallable type")),
+                    ),
+                    Read => eval_function!([] => {
+                        Ok(Value::List(self.ctx.get_pushes().clone()).into())
+                    }),
+                    Push => eval_function!(
+                        [Value::String(target), to_push] => {
+                            let to_push = to_push.clone().into();
+                            self.ctx.add_push_by_name(target, &to_push);
+                            Ok(Value::Unit.into())
+                        },
+                    ),
+                    LessThan => eval_function!(
+                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a < b).into()),
+                    ),
+                    GreaterThan => eval_function!(
+                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a > b).into()),
+                    ),
+                    LessThanEqual => eval_function!(
+                                [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a <= b).into()),),
+                    GreaterThanEqual => eval_function!(
+                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a >= b).into()),
+                    ),
+                    Equals => eval_function!(
+                        [Value::Integer(a), Value::Integer(b)] => Ok(Value::Boolean(a == b).into()),
+                        [Value::String(a), Value::String(b)] => Ok(Value::Boolean(a == b).into()),
+                        [Value::Boolean(a), Value::Boolean(b)] => Ok(Value::Boolean(a == b).into()),
+                    ),
+
+                    Not => eval_function!(
+                                [Value::Boolean(b)] => Ok(Value::Boolean(!b).into()),),
+                    And => lazy_eval!([lhs, rhs] => {
+                        if self.evaluate(lhs)?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
+                            self.evaluate(rhs)
+                        } else {
+                            Ok(Value::Boolean(false).into())
+                        }
+                    }),
+                    Or => lazy_eval!([lhs, rhs] => {
+                        if self.evaluate(lhs)?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
+                            Ok(Value::Boolean(true).into())
+                        } else {
+                            self.evaluate(rhs)
+                        }
+                    }),
+                    If => lazy_eval!([cond, then, else_] => {
+                        if self.evaluate(cond)?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
+                            self.evaluate(then)
+                        } else {
+                            self.evaluate(else_)
+                        }
+                    }),
+
+                    Map => eval_function!(
+                        [Value::Function(f), Value::List(l)] => {
+                            let mut new_list = Vec::with_capacity(l.len());
+                            for elem in l {
+                                new_list.push(self.evaluate_function(f, &[elem.clone().into()])?);
+                            }
+                            Ok(Value::List(new_list).into())
+                        },
+                        [Value::Function(f), Value::Record(r)] => {
+                            let mut new_record = BTreeMap::new();
+                            for (k, v) in r {
+                                new_record.insert(k.clone(), self.evaluate_function(f, &[k.clone().into(),v.clone().into()])?);
+                            }
+                            Ok(Value::Record(new_record).into())
+                        }
+                    ),
+                    Fold => eval_function!(
+                        [Value::Function(f), acc_base, Value::List(l)] => {
+                            let mut acc = EvaluatedValue(acc_base.clone());
+                            for elem in l {
+                                acc = self.evaluate_function(f, &[acc.clone().into(), elem.clone().into()])?;
+                            }
+                            Ok(acc)
+                        },
+                        [Value::Function(f), acc_base, Value::Record(r)] => {
+                            let mut acc = EvaluatedValue(acc_base.clone());
+                            for (k, v) in r {
+                                acc = self.evaluate_function(f, &[acc.clone().into(), k.clone().into(), v.clone().into()])?;
+                            }
+                            Ok(acc)
+                        }
+                    ),
+                    Filter => eval_function!(
+                        [Value::Function(f), Value::List(l)] => {
+                            let mut new_list = Vec::new();
+                            for elem in l {
+                                if self.evaluate_function(f, &[elem.clone().into()])?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
+                                    new_list.push(elem.clone());
+                                }
+                            }
+                            Ok(Value::List(new_list).into())
+                        },
+                        [Value::Function(f), Value::Record(r)] => {
+                            let mut new_record = BTreeMap::new();
+                            for (k, v) in r {
+                                if self.evaluate_function(f, &[k.clone().into(),v.clone().into()])?.try_into().map_err(|_| {Error::with_message("Incorrect type")})? {
+                                    new_record.insert(k.clone(), v.clone());
+                                }
+                            }
+                            todo!()
+                        }
+                    ),
                 }
             }
         }
@@ -271,22 +337,24 @@ impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
                     .map(|ast| self.evaluate(ast))
                     .collect::<Result<_, _>>()?,
             ))),
-            Value::BuiltinFunction(name) => {
-                Ok(EvaluatedValue(Value::BuiltinFunction(name.clone())))
-            }
-            Value::Lambda(params, body) => Ok(EvaluatedValue(Value::Lambda(
-                params.clone(),
-                Box::new(self.capture_values(
-                    &mut {
-                        let mut locals = Scope::new();
-                        for param in params.iter() {
-                            locals.insert(param.clone(), ());
-                        }
-                        locals
-                    },
-                    body,
-                )),
+            Value::Function(Function::Builtin(name)) => Ok(EvaluatedValue(Value::Function(
+                Function::Builtin(name.clone()),
             ))),
+            Value::Function(Function::Lambda(params, body)) => {
+                Ok(EvaluatedValue(Value::Function(Function::Lambda(
+                    params.clone(),
+                    Box::new(self.capture_values(
+                        &mut {
+                            let mut locals = Scope::new();
+                            for param in params.iter() {
+                                locals.insert(param.clone(), ());
+                            }
+                            locals
+                        },
+                        body,
+                    )),
+                ))))
+            }
         }
     }
 
@@ -305,13 +373,15 @@ impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
                         .map(|i| self.capture_values(local_scope, i))
                         .collect(),
                 ),
-                Value::Lambda(args, ast) => Value::Lambda(args.clone(), {
-                    let mut inner_scope = Scope::new_with_parent(local_scope);
-                    for arg in args {
-                        inner_scope.insert(arg.clone(), ());
-                    }
-                    Box::new(self.capture_values(&mut inner_scope, ast))
-                }),
+                Value::Function(Function::Lambda(args, ast)) => {
+                    Value::Function(Function::Lambda(args.clone(), {
+                        let mut inner_scope = Scope::new_with_parent(local_scope);
+                        for arg in args {
+                            inner_scope.insert(arg.clone(), ());
+                        }
+                        Box::new(self.capture_values(&mut inner_scope, ast))
+                    }))
+                }
                 value => value.clone(),
             }),
             AST::Name(name) => {
@@ -367,10 +437,7 @@ impl IntermediateRep for AST {
     /// The function returns a Result containing the evaluated value, or an error message if the evaluation failed.
     ///
     /// The function is used internally by the sheet to evaluate the contents of cells.
-    fn evaluate<'a>(
-        &self,
-        mut ctx: ReactiveContext<'a, Self>
-    ) -> Result<Self::Value, Self::Error> {
+    fn evaluate<'a>(&self, mut ctx: ReactiveContext<'a, Self>) -> Result<Self::Value, Self::Error> {
         InterpreterCtx::new(&mut ctx).evaluate(self)
     }
 

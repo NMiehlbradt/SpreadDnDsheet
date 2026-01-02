@@ -12,8 +12,13 @@ pub enum Value<T> {
     Record(BTreeMap<String, T>),
     List(Vec<T>),
 
-    BuiltinFunction(BuiltinFunction),
+    Function(Function),
+}
+
+#[derive(Debug, Clone)]
+pub enum Function {
     Lambda(Vec<String>, Box<AST>),
+    Builtin(BuiltinFunction),
 }
 
 #[derive(Debug, Clone)]
@@ -48,8 +53,8 @@ impl From<Value<EvaluatedValue>> for Value<AST> {
                 Value::Record(fields.into_iter().map(|(k, v)| (k, v.into())).collect())
             }
             Value::List(items) => Value::List(items.into_iter().map(Into::into).collect()),
-            Value::BuiltinFunction(function) => Value::BuiltinFunction(function),
-            Value::Lambda(args, body) => Value::Lambda(args, body),
+            Value::Function(Function::Builtin(function)) => Value::Function(Function::Builtin(function)),
+            Value::Function(Function::Lambda(args, body)) => Value::Function(Function::Lambda(args, body)),
         }
     }
 }
@@ -86,8 +91,8 @@ pub fn pretty_print_result(res: &Result<EvaluatedValue, Error>) -> String {
 }
 
 impl AST {
-    pub fn function(name: impl Into<AST>, args: Vec<AST>) -> AST {
-        AST::Function(Box::new(name.into()), args)
+    pub fn function(function: impl Into<AST>, args: Vec<AST>) -> AST {
+        AST::Function(Box::new(function.into()), args)
     }
 }
 
@@ -107,6 +112,6 @@ where T: Into<String>
 
 impl From<BuiltinFunction> for AST {
     fn from(value: BuiltinFunction) -> Self {
-        AST::Literal(Value::BuiltinFunction(value))
+        AST::Literal(Value::Function(Function::Builtin(value)))
     }
 }
