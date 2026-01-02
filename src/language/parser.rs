@@ -143,6 +143,11 @@ impl<'a> Lexer<'a> {
     }
 }
 
+pub fn validate_name(name: &str) -> bool {
+    let mut lexer = Lexer::new(name);
+    lexer.next().map_or(false, |t| t.token_type == TokenType::Name) && lexer.next().is_none()
+}
+
 impl<'a> Iterator for Lexer<'a> {
     type Item = Token<'a>;
 
