@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 plex = "0.3.1"
-iced = "0.13.1"
+iced = "0.14.0"

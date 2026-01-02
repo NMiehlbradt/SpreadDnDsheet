@@ -6,7 +6,7 @@ use iced::Length::Fill;
 use iced::Element;
 
 pub fn main() -> iced::Result {
-    iced::run("Simple sheet viewer", State::update, State::view)
+    iced::run(State::update, State::view)
 }
 
 struct State {
