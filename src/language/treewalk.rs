@@ -222,7 +222,7 @@ impl<'inner, 'outer> InterpreterCtx<'inner, 'outer> {
                         [Value::String(target), to_push] => {
                             let to_push = to_push.clone().into();
                             self.ctx.add_push_by_name(target, &to_push);
-                            Ok(Value::Unit.into())
+                            Ok(to_push.into())
                         },
                     ),
                     LessThan => eval_function!(
