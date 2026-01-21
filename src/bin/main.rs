@@ -8,6 +8,11 @@ use iced::widget::{button, column, container, row, scrollable, stack, text, text
 use iced::{Color, Element, Theme};
 
 pub fn main() -> iced::Result {
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    }
+
     iced::run(State::update, State::view)
 }
 

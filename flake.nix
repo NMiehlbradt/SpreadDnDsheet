@@ -14,7 +14,7 @@
         pkgs = nixpkgs.legacyPackages.${system};
 
         # Runtime libraries for GUI / windowing
-        runtimeLibs = with pkgs; [
+        runtimeLibs = if system == "aarch64-darwin" then [] else with pkgs; [
           vulkan-loader
           mesa
           libGL
@@ -30,13 +30,19 @@
           libxkbcommon
         ];
 
-        rust = fenix.packages.${system}.stable;
+        rustToolchain = fenix.packages.${system}.combine [
+          fenix.packages.${system}.stable.toolchain
+          fenix.packages.${system}.targets.wasm32-unknown-unknown.stable.rust-std
+        ];
       in {
         default = pkgs.mkShell {
           packages = with pkgs; [
-            rust.toolchain
+            rustToolchain
             cargo-outdated
             pkg-config
+
+            wasm-pack
+            trunk
           ] ++ runtimeLibs;
 
           shellHook = ''

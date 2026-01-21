@@ -483,6 +483,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -655,8 +665,10 @@ dependencies = [
 name = "dnd_spreadsheet"
 version = "0.1.0"
 dependencies = [
+ "console_error_panic_hook",
  "iced",
  "plex",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -3180,6 +3192,7 @@ dependencies = [
  "thiserror 2.0.17",
  "wgpu-core-deps-apple",
  "wgpu-core-deps-emscripten",
+ "wgpu-core-deps-wasm",
  "wgpu-core-deps-windows-linux-android",
  "wgpu-hal",
  "wgpu-types",
@@ -3199,6 +3212,15 @@ name = "wgpu-core-deps-emscripten"
 version = "27.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b06ac3444a95b0813ecfd81ddb2774b66220b264b3e2031152a4a29fda4da6b5"
+dependencies = [
+ "wgpu-hal",
+]
+
+[[package]]
+name = "wgpu-core-deps-wasm"
+version = "27.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b1027dcf3b027a877e44819df7ceb0e2e98578830f8cd34cd6c3c7c2a7a50b7"
 dependencies = [
  "wgpu-hal",
 ]
