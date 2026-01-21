@@ -1,10 +1,14 @@
-use dnd_spreadsheet::language::ast::{AST, pretty_print_result};
+use dnd_spreadsheet::language::ast::{AST, EvaluatedValue, Function, Value};
+use dnd_spreadsheet::language::bultins::stringify_builtin;
+use dnd_spreadsheet::language::s_exprs::ToSExpr;
 use dnd_spreadsheet::language::validate_name;
 use dnd_spreadsheet::reactive::sheet::{CellId, Sheet};
 use iced::Length;
 use iced::alignment::Vertical;
 use iced::widget::container::Style;
-use iced::widget::{button, column, container, row, scrollable, stack, text, text_editor};
+use iced::widget::{
+    button, column, container, row, scrollable, stack, text, text_editor,
+};
 use iced::{Color, Element, Theme};
 
 pub fn main() -> iced::Result {
@@ -101,7 +105,9 @@ impl State {
             button("Add cell")
                 .on_press(Message::MainEditorMessage(MainEditorMessage::NewCell))
                 .width(Length::Fill),
-            scrollable(self.draw_cells()).height(Length::Fill).width(Length::Fill),
+            scrollable(self.draw_cells())
+                .height(Length::Fill)
+                .width(Length::Fill),
             container(column![
                 text_editor(&self.editor_contents).on_action(|action| Message::MainEditorMessage(
                     MainEditorMessage::Edit(action)
@@ -121,7 +127,10 @@ impl State {
             let cell_value = self.sheet.get_cell_value(id).unwrap();
             let button = button(column![
                 text(cell_name),
-                text(format!("{}", pretty_print_result(cell_value))),
+                match cell_value {
+                    Ok(v) => Self::draw_value(v),
+                    Err(e) => text(format!("Error: {}", e.message)).into(),
+                },
             ])
             .on_press(Message::MainEditorMessage(MainEditorMessage::SelectCell(
                 id.clone(),
@@ -139,6 +148,29 @@ impl State {
         }))
     }
 
+    fn draw_value(value: &EvaluatedValue) -> Element<'_, Message> {
+        match &value.0 {
+            Value::Unit => text(format!("()")).into(),
+            Value::Integer(i) => text(format!("{}", i)).into(),
+            Value::String(s) => text(s).into(),
+            Value::Boolean(b) => text(format!("{}", b)).into(),
+            Value::Record(btree_map) => {
+                column(btree_map.iter().map(|(k, v)| {
+                    row![text(format!("{}: ", k)), Self::draw_value(v)].spacing(20).into()
+                })).into()
+            }
+            Value::List(items) => column(items.iter().map(|item| Self::draw_value(item))).into(),
+            Value::Function(function) => match function {
+                Function::Lambda(args, body) => {
+                    text(format!("fn ({}) -> {}", args.join(", "), body.to_s_expr())).into()
+                }
+                Function::Builtin(name) => {
+                    text(format!("builtin {}", stringify_builtin(*name))).into()
+                }
+            },
+        }
+    }
+
     fn draw_new_file_dialogue(editor: &text_editor::Content) -> Element<'_, Message> {
         container(column![
             container("New Cell").center_x(Length::Fill),
@@ -146,18 +178,30 @@ impl State {
                 NewCellEditorMessage::Edit(action)
             )),
             row![
-                button(container("Submit").center_x(Length::Fill).center_y(Length::Fill))
-                    .on_press(Message::NewCellEditorMessage(NewCellEditorMessage::Submit))
-                    .width(Length::Fill).height(Length::Shrink),
-                button(container("Cancel").center_x(Length::Fill).center_y(Length::Fill))
-                    .on_press(Message::NewCellEditorMessage(NewCellEditorMessage::Cancel))
-                    .width(Length::Fill).height(Length::Shrink),
+                button(
+                    container("Submit")
+                        .center_x(Length::Fill)
+                        .center_y(Length::Fill)
+                )
+                .on_press(Message::NewCellEditorMessage(NewCellEditorMessage::Submit))
+                .width(Length::Fill)
+                .height(Length::Shrink),
+                button(
+                    container("Cancel")
+                        .center_x(Length::Fill)
+                        .center_y(Length::Fill)
+                )
+                .on_press(Message::NewCellEditorMessage(NewCellEditorMessage::Cancel))
+                .width(Length::Fill)
+                .height(Length::Shrink),
             ],
         ])
         .style(|_theme: &Theme| Style {
             background: Some(Color::from_rgba8(0, 0, 0, 0.4).into()),
             ..Default::default()
-        }).center_x(Length::Fill).center_y(Length::Fill)
+        })
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
         .into()
     }
 }

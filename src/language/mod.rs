@@ -1,6 +1,6 @@
 pub mod ast;
-mod bultins;
-mod errors;
+pub mod bultins;
+pub mod errors;
 mod parser;
 pub mod s_exprs;
 pub mod treewalk;
